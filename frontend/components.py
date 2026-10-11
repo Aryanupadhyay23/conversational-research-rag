@@ -22,7 +22,7 @@ def render_header():
         unsafe_allow_html=True
     )
 
-def render_session_sidebar(service) -> str:
+def render_session_sidebar(service=None) -> str:
     """
     Render conversation history sidebar with multi-session management.
     Returns active session_id.

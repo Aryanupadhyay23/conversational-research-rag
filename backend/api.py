@@ -1,7 +1,15 @@
+import sys
+import os
 import asyncio
 import json
 import logging
 from typing import List, Optional
+
+# Ensure project root is in sys.path regardless of working directory
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware

@@ -37,15 +37,53 @@ def load_pdf_from_bytes(file_bytes: bytes, filename: str) -> List[Document]:
     if not file_bytes:
         return []
 
-    # 1. Primary Strategy: pdfplumber for layout & markdown table extraction
+    # 1. Primary Strategy: PyMuPDF (fitz) - high-speed C++ parsing with native table extraction
+    try:
+        import pymupdf
+        docs = []
+        doc = pymupdf.open(stream=file_bytes, filetype="pdf")
+        for page_idx, page in enumerate(doc):
+            page_text = page.get_text() or ""
+            tables_md = []
+            try:
+                tabs = page.find_tables()
+                if tabs and tabs.tables:
+                    for t in tabs:
+                        md = t.to_markdown()
+                        if md and md.strip():
+                            tables_md.append(md.strip())
+            except Exception as tbl_err:
+                logger.debug(f"PyMuPDF table extraction on page {page_idx}: {tbl_err}")
+
+            content_parts = []
+            if page_text.strip():
+                content_parts.append(page_text.strip())
+            if tables_md:
+                content_parts.append("### Extracted Tables:\n" + "\n\n".join(tables_md))
+
+            full_content = "\n\n".join(content_parts).strip()
+            if full_content:
+                docs.append(Document(
+                    page_content=full_content,
+                    metadata={
+                        "source_name": filename,
+                        "page": page_idx,
+                        "has_tables": len(tables_md) > 0
+                    }
+                ))
+        if docs:
+            logger.info(f"Loaded {len(docs)} pages from '{filename}' with high-speed PyMuPDF.")
+            return docs
+    except Exception as e:
+        logger.warning(f"PyMuPDF failed for '{filename}', falling back to pdfplumber: {e}")
+
+    # 2. Secondary Strategy: pdfplumber fallback
     try:
         import pdfplumber
         docs = []
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             for page_idx, page in enumerate(pdf.pages):
                 page_text = page.extract_text(layout=False) or ""
-                
-                # Extract and format tables into Markdown
                 tables_md = []
                 try:
                     tables = page.extract_tables() or []
@@ -73,32 +111,10 @@ def load_pdf_from_bytes(file_bytes: bytes, filename: str) -> List[Document]:
                         }
                     ))
         if docs:
-            logger.info(f"Loaded {len(docs)} pages from '{filename}' with pdfplumber.")
+            logger.info(f"Loaded {len(docs)} pages from '{filename}' with pdfplumber fallback.")
             return docs
     except Exception as e:
-        logger.warning(f"pdfplumber failed for '{filename}', trying PyMuPDF fallback: {e}")
-
-    # 2. Secondary Strategy: PyMuPDF (fitz)
-    try:
-        import pymupdf
-        docs = []
-        doc = pymupdf.open(stream=file_bytes, filetype="pdf")
-        for page_idx, page in enumerate(doc):
-            text = page.get_text() or ""
-            if text.strip():
-                docs.append(Document(
-                    page_content=text.strip(),
-                    metadata={
-                        "source_name": filename,
-                        "page": page_idx,
-                        "has_tables": False
-                    }
-                ))
-        if docs:
-            logger.info(f"Loaded {len(docs)} pages from '{filename}' with PyMuPDF.")
-            return docs
-    except Exception as e:
-        logger.warning(f"PyMuPDF failed for '{filename}', trying pypdf fallback: {e}")
+        logger.warning(f"pdfplumber failed for '{filename}', trying pypdf fallback: {e}")
 
     # 3. Final Fallback: pypdf
     try:

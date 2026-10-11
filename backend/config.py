@@ -5,15 +5,30 @@ from langchain_core.language_models import BaseChatModel
 
 logger = logging.getLogger(__name__)
 
-# Load environment file (supports .env.rag, ENV_FILE path, or default .env)
-env_file_path = os.getenv("ENV_FILE")
-if env_file_path and os.path.exists(env_file_path):
-    load_dotenv(env_file_path, override=True)
-elif os.path.exists(".env.rag"):
-    load_dotenv(".env.rag", override=True)
-elif os.path.exists(".env"):
-    load_dotenv(".env", override=True)
-else:
+# Locate and load environment file (supports project root, current directory, or EC2 host paths)
+_BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_BACKEND_DIR)
+
+candidate_env_paths = [
+    os.getenv("ENV_FILE"),
+    os.path.join(os.getcwd(), ".env.rag"),
+    os.path.join(_PROJECT_ROOT, ".env.rag"),
+    "/home/ubuntu/.env.rag",
+    "/home/ubuntu/app/.env.rag",
+    os.path.join(os.getcwd(), ".env"),
+    os.path.join(_PROJECT_ROOT, ".env"),
+    "/home/ubuntu/.env",
+    "/home/ubuntu/app/.env",
+]
+
+_loaded = False
+for _path in candidate_env_paths:
+    if _path and os.path.isfile(_path):
+        load_dotenv(_path, override=True)
+        _loaded = True
+        break
+
+if not _loaded:
     load_dotenv(override=True)
 
 def _clean_env(val: str | None) -> str:
@@ -112,8 +127,13 @@ def get_eval_llm() -> BaseChatModel:
 def get_embeddings():
     """Return native Google Gemini Embeddings."""
     from langchain_google_genai import GoogleGenerativeAIEmbeddings
+    api_key = GOOGLE_API_KEY or _clean_env(os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
+    if not api_key:
+        raise ValueError(
+            "Google Gemini API key is missing. Please set GOOGLE_API_KEY or GEMINI_API_KEY in your .env.rag file."
+        )
     return GoogleGenerativeAIEmbeddings(
         model=GEMINI_EMBEDDING_MODEL,
-        google_api_key=GOOGLE_API_KEY,
+        google_api_key=api_key,
         output_dimensionality=EMBEDDING_DIMENSION
     )
