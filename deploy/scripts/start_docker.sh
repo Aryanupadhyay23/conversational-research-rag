@@ -39,12 +39,12 @@ if [ -n "$ENV_FILE" ]; then
     ENV_FLAG="--env-file $ENV_FILE"
 fi
 
-# Run container mapping port 80 to Streamlit (7860) and port 8000 for FastAPI
+# Run container mapping host port 8502 to Streamlit (7860) and host port 8001 to FastAPI (8000)
 docker run -d \
     --name ${CONTAINER_NAME} \
     --restart unless-stopped \
-    -p 80:7860 \
-    -p 8000:8000 \
+    -p 8502:7860 \
+    -p 8001:8000 \
     $ENV_FLAG \
     ${IMAGE_URI}
 

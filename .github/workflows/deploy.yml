@@ -28,10 +28,10 @@ permissions:
 
 env:
   # Master pipeline execution permission toggle
-  EXECUTE_PIPELINE: "false"
+  EXECUTE_PIPELINE: "true"
 
   # AWS platform deployment toggle
-  ENABLE_AWS: "false"
+  ENABLE_AWS: "true"
 
   # AWS cloud resource settings
   AWS_REGION: ap-southeast-2
@@ -137,7 +137,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ap-southeast-2
 
       - name: Log in to Amazon ECR
         id: login-ecr
@@ -158,20 +158,20 @@ jobs:
       - name: Test Container Health Check
         run: |
           docker run -d --name test_container \
-            -p 8000:8000 \
-            -p 7860:7860 \
+            -p 8001:8000 \
+            -p 8502:7860 \
             app:${{ github.sha }}
 
           # Poll health endpoint for up to 30 seconds
           for i in {1..15}; do
             sleep 2
-            if curl -sf http://localhost:8000/health | grep healthy; then
-              echo "FastAPI container passed pre-deployment health check on port 8000."
+            if curl -sf http://localhost:8001/health | grep healthy; then
+              echo "FastAPI container passed pre-deployment health check on port 8001."
               break
             fi
           done
 
-          curl --fail http://localhost:8000/health
+          curl --fail http://localhost:8001/health
           docker stop test_container
           docker rm test_container
 
@@ -179,11 +179,11 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          docker tag app:${{ github.sha }} $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-          docker tag app:${{ github.sha }} $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:latest
+          docker tag app:${{ github.sha }} $ECR_REGISTRY/research-paper-rag:${{ github.sha }}
+          docker tag app:${{ github.sha }} $ECR_REGISTRY/research-paper-rag:latest
 
-          docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-          docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:latest
+          docker push $ECR_REGISTRY/research-paper-rag:${{ github.sha }}
+          docker push $ECR_REGISTRY/research-paper-rag:latest
           echo "Pushed image tags to ECR: ${{ github.sha }} and latest"
 
       - name: Package CodeDeploy Bundle
@@ -197,17 +197,17 @@ jobs:
 
       - name: Upload Deployment Artifact to S3
         run: |
-          aws s3 cp deployment.zip s3://${{ env.S3_DEPLOYMENT_BUCKET }}/deployment.zip
+          aws s3 cp deployment.zip s3://research-paper-rag-deployments/deployment.zip
 
       - name: Trigger AWS CodeDeploy
         run: |
           DEPLOYMENT_ID=$(aws deploy create-deployment \
-            --application-name ${{ env.CODEDEPLOY_APPLICATION_NAME }} \
-            --deployment-group-name ${{ env.CODEDEPLOY_DEPLOYMENT_GROUP }} \
+            --application-name research-paper-rag-app \
+            --deployment-group-name research-paper-rag-group \
             --deployment-config-name CodeDeployDefault.OneAtATime \
-            --s3-location bucket=${{ env.S3_DEPLOYMENT_BUCKET }},key=deployment.zip,bundleType=zip \
+            --s3-location bucket=research-paper-rag-deployments,key=deployment.zip,bundleType=zip \
             --file-exists-behavior OVERWRITE \
-            --region ${{ env.AWS_REGION }} \
+            --region ap-southeast-2 \
             --query "deploymentId" \
             --output text)
           echo "AWS CodeDeploy deployment triggered successfully. Deployment ID: $DEPLOYMENT_ID"
