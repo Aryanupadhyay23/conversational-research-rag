@@ -1,0 +1,44 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Environment files and credentials (DO NOT bake secrets into Docker images)
+.env
+.env.*
+*.env
+
+# Virtual environments
+venv/
+.venv/
+env/
+myenv/
+ENV/
+
+# Git & CI/CD
+.git/
+.gitignore
+.github/
+
+# IDE and Editor artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Testing and code quality caches
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Streamlit local secrets
+.streamlit/secrets.toml
+
+# Logs and scratch files
+*.log
