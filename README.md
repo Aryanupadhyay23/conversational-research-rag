@@ -1,5 +1,5 @@
 ---
-title: Research Paper RAG Project
+title: Conversational Research RAG
 emoji: 📄
 colorFrom: blue
 colorTo: purple
@@ -8,13 +8,13 @@ app_port: 7860
 pinned: false
 ---
 
-# Research Paper RAG Project
+# Conversational Research RAG
 
 **Live Demo:** [Hugging Face Spaces: Conversational_PDF_RAG](https://huggingface.co/spaces/Aryan2301/Conversational_PDF_RAG)
 
-An end-to-end **Self-Reflective Retrieval-Augmented Generation (Self-RAG)** conversational chatbot built with **LangGraph**, **Streamlit**, **Ollama Cloud (`gpt-oss:120b`)**, **ChromaDB**, and **Google Gemini Embeddings**. Upload multiple PDF documents and converse with their content through an autonomous, self-correcting agent state graph.
+A production-ready conversational research agent bridging multi-PDF document analysis and conversational memory. Powered by a self-reflective LangGraph state graph with automatic intent routing, document relevance grading, Tavily/arXiv fallback retrieval, and an SSE streaming FastAPI backend.
 
-The agent actively reflects on retrieved context relevance, transforms unhelpful queries, verifies generated answers against hallucinations, and evaluates answer quality before responding.
+Built as an end-to-end **Self-Reflective Retrieval-Augmented Generation (Self-RAG)** system with **LangGraph**, **Streamlit**, **Ollama Cloud (`gpt-oss:120b`)**, **ChromaDB**, and **Google Gemini Embeddings**. Upload multiple PDF documents and converse with their content through an autonomous, self-correcting agent state graph that actively reflects on context relevance, transforms unhelpful queries, verifies generated answers against hallucinations, and evaluates answer quality before responding.
 
 ---
 
@@ -185,8 +185,8 @@ flowchart TD
 ### 1. Clone the Repository
 
 ```bash
-git clone <your_repo_url>
-cd conversational-pdf-rag
+git clone git@github-personal:Aryanupadhyay23/conversational-research-rag.git
+cd conversational-research-rag
 ```
 
 ### 2. Set Up Environment Variables
@@ -254,13 +254,13 @@ When deploying via Docker, you **only run a single command**. The container auto
 1. **Build the Docker image:**
 
    ```bash
-   docker build -t conversational-pdf-rag .
+   docker build -t conversational-research-rag .
    ```
 
 2. **Run the Docker container (Single Command):**
 
    ```bash
-   docker run -p 7860:7860 -p 8000:8000 --env-file .env conversational-pdf-rag
+   docker run -p 7860:7860 -p 8000:8000 --env-file .env conversational-research-rag
    ```
 
    * **Streamlit Chat UI**: Access at `http://localhost:7860`
@@ -273,7 +273,7 @@ When deploying via Docker, you **only run a single command**. The container auto
 ## Project Structure
 
 ```text
-conversational-pdf-rag/
+conversational-research-rag/
 │
 ├── backend/                              # Complete Backend Core
 │   ├── config.py                         # LLM, embeddings & API configuration
@@ -332,12 +332,24 @@ conversational-pdf-rag/
 │   ├── components.py                     # Message renderer, badges & citation expanders
 │   └── styles.py                         # Custom dark blue black CSS styling
 │
+├── deploy/                               # Deployment & Infrastructure Scripts
+│   └── scripts/
+│       ├── install_dependencies.sh       # EC2 dependency bootstrapper (Docker & AWS CLI)
+│       ├── start_docker.sh               # ECR login & container launcher with .env.rag support
+│       └── stop_docker.sh                # Container stopper & cleaner
+│
+├── .github/workflows/                    # CI/CD Workflows
+│   ├── deploy.yml                        # GitHub Actions automated test, build & AWS CodeDeploy
+│   └── keep_alive.yml                    # 24h cron heartbeat ping for Hugging Face Space
+│
 ├── app.py                                # Root runner: streamlit run app.py
 ├── api.py                                # Root runner: uvicorn api:app
 ├── entrypoint.sh                         # Multi-process container launcher
 ├── requirements.txt                      # Project dependencies
-├── .env                                  # Environment variables
-├── Dockerfile                            # Docker configuration
+├── .env / .env.rag                       # Environment variables (supports .env.rag on shared EC2)
+├── .dockerignore                         # Container ignore rules (excluding credentials & caches)
+├── Dockerfile                            # Docker multi-service container configuration
+├── appspec.yml                           # AWS CodeDeploy application specification
 └── README.md                             # Documentation & Mermaid workflow
 ```
 
