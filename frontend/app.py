@@ -11,6 +11,8 @@ from frontend.api_client import (
     upload_documents,
     stream_chat,
     compute_files_hash,
+    fetch_user_sessions,
+    save_user_sessions_to_backend,
 )
 from frontend.components import (
     inject_custom_theme,
@@ -20,9 +22,6 @@ from frontend.components import (
     render_welcome_screen,
     render_chat_history,
     render_message_turn,
-    render_verdict_badge,
-    render_grounding_badge,
-    render_sources_section,
 )
 
 # Streamlit Page Setup
@@ -32,20 +31,29 @@ st.set_page_config(
     page_icon="📄"
 )
 
-# Inject dark blue black styling
+# Inject obsidian black styling
 inject_custom_theme()
 
-# Initialize Multi-Session Conversation History
+# Initialize User & Multi-Session Conversation History
+if "username" not in st.session_state:
+    st.session_state.username = "default_user"
+
 if "sessions" not in st.session_state:
-    init_id = f"session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    st.session_state.sessions = {
-        init_id: {
-            "title": "New Research Chat",
-            "messages": [],
-            "created_at": datetime.datetime.now().strftime("%b %d, %H:%M")
+    loaded = fetch_user_sessions(st.session_state.username)
+    if loaded:
+        st.session_state.sessions = loaded
+        st.session_state.current_session_id = list(loaded.keys())[0]
+    else:
+        init_id = f"session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        st.session_state.sessions = {
+            init_id: {
+                "title": "New Research Chat",
+                "messages": [],
+                "created_at": datetime.datetime.now().strftime("%b %d, %H:%M")
+            }
         }
-    }
-    st.session_state.current_session_id = init_id
+        st.session_state.current_session_id = init_id
+        save_user_sessions_to_backend(st.session_state.username, st.session_state.sessions)
 
 if "uploaded_hash" not in st.session_state:
     st.session_state.uploaded_hash = None
@@ -54,7 +62,14 @@ if "pdf_bytes_map" not in st.session_state:
 
 # Sidebar Conversation History Navigation
 active_session_id = render_session_sidebar()
+if active_session_id not in st.session_state.sessions:
+    st.session_state.sessions[active_session_id] = {
+        "title": "New Research Chat",
+        "messages": [],
+        "created_at": datetime.datetime.now().strftime("%b %d, %H:%M")
+    }
 active_session = st.session_state.sessions[active_session_id]
+
 
 # Main Header Banner
 render_header()
@@ -106,32 +121,11 @@ current_messages = active_session.get("messages", [])
 
 if not current_messages:
     render_welcome_screen()
-
-    # Starter prompts for smooth user experience
-    st.markdown("<p style='color: #64748b; font-size: 13px; text-align: center;'>Suggested Exploration Prompts:</p>", unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3)
-    starter_prompt = None
-    with c1:
-        if st.button("Summarize Key Contributions", use_container_width=True):
-            starter_prompt = "Summarize the primary contributions and methodologies of this paper."
-    with c2:
-        if st.button("Evaluate Study Limitations", use_container_width=True):
-            starter_prompt = "What are the limitations, threats to validity, and future work noted?"
-    with c3:
-        if st.button("Verify Literature Findings", use_container_width=True):
-            starter_prompt = "Are there conflicting findings or counter-evidence in recent literature?"
-
-    if starter_prompt:
-        user_input_query = starter_prompt
-    else:
-        user_input_query = None
 else:
     render_chat_history(current_messages, pdf_bytes_map=st.session_state.get("pdf_bytes_map"))
-    user_input_query = None
 
 # Chat Input Bar
-typed_query = st.chat_input("Ask a research question or verify an academic claim...")
-query_to_run = user_input_query or typed_query
+query_to_run = st.chat_input("Ask a research question or verify an academic claim...")
 
 if query_to_run:
     if not is_backend_online:
@@ -146,6 +140,7 @@ if query_to_run:
 
         # Append user turn to history & render
         active_session["messages"].append({"role": "user", "content": query_to_run})
+        save_user_sessions_to_backend(st.session_state.username, st.session_state.sessions)
         render_message_turn(role="user", content=query_to_run)
 
         # Stream assistant response live from FastAPI SSE stream
@@ -158,7 +153,11 @@ if query_to_run:
             }
 
             def stream_tokens():
-                for event in stream_chat(query_to_run, session_id=active_session_id):
+                for event in stream_chat(
+                    query_to_run,
+                    session_id=active_session_id,
+                    username=st.session_state.username
+                ):
                     ev_type = event.get("type")
                     if ev_type == "token":
                         yield event.get("content", "")
@@ -171,11 +170,17 @@ if query_to_run:
                     elif ev_type == "error":
                         st.error(f"Backend Streaming Error: {event.get('error')}")
 
+            response_placeholder = st.empty()
             try:
-                full_response = st.write_stream(stream_tokens())
+                full_response = response_placeholder.write_stream(stream_tokens())
                 if not full_response and meta.get("answer"):
                     full_response = meta["answer"]
-                    st.markdown(full_response)
+                
+                # Re-render with full LaTeX normalization and markdown styling
+                if full_response:
+                    response_placeholder.empty()
+                    with response_placeholder.container():
+                        render_formatted_markdown(full_response)
             except Exception as stream_err:
                 st.error(f"Stream error: {stream_err}")
                 full_response = ""
@@ -192,7 +197,7 @@ if query_to_run:
             if meta.get("sources"):
                 render_sources_section(meta["sources"], pdf_bytes_map=st.session_state.get("pdf_bytes_map"))
 
-            # Persist assistant turn to active session messages
+            # Persist assistant turn to active session messages & Upstash Redis
             if full_response:
                 active_session["messages"].append({
                     "role": "assistant",
@@ -201,3 +206,5 @@ if query_to_run:
                     "claim_analysis": meta.get("claim_analysis"),
                     "groundedness": meta.get("groundedness")
                 })
+                save_user_sessions_to_backend(st.session_state.username, st.session_state.sessions)
+

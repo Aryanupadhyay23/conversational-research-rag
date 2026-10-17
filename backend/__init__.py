@@ -1,3 +1,3 @@
-from backend.service import AgentService, QueryResult
+from backend.services import AgentService, QueryResult
 
 __all__ = ["AgentService", "QueryResult"]

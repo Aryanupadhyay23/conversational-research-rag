@@ -40,5 +40,14 @@ htmlcov/
 # Streamlit local secrets
 .streamlit/secrets.toml
 
-# Logs and scratch files
+# Host deployment scripts & config (run on host, not in container)
+deploy/
+appspec.yml
+
+# Logs, scratch files and docker build metadata
+.logs/
 *.log
+scratch/
+Dockerfile
+.dockerignore
+

@@ -1,174 +1,320 @@
----
-title: Conversational Research RAG
-emoji: 📄
-colorFrom: blue
-colorTo: purple
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # Conversational Research RAG
 
-**Live Demo:** [Hugging Face Spaces: Conversational_PDF_RAG](https://huggingface.co/spaces/Aryan2301/Conversational_PDF_RAG)
-
-A production-ready conversational research agent bridging multi-PDF document analysis and conversational memory. Powered by a self-reflective LangGraph state graph with automatic intent routing, document relevance grading, Tavily/arXiv fallback retrieval, and an SSE streaming FastAPI backend.
-
-Built as an end-to-end **Self-Reflective Retrieval-Augmented Generation (Self-RAG)** system with **LangGraph**, **Streamlit**, **Ollama Cloud (`gpt-oss:120b`)**, **ChromaDB**, and **Google Gemini Embeddings**. Upload multiple PDF documents and converse with their content through an autonomous, self-correcting agent state graph that actively reflects on context relevance, transforms unhelpful queries, verifies generated answers against hallucinations, and evaluates answer quality before responding.
+An enterprise-grade, conversational research assistant designed for deep academic document analysis, evidence verification, and multi-turn scientific discovery. Powered by an autonomous Self-Reflective Retrieval-Augmented Generation (Self-RAG) state graph, full asynchronous FastAPI backend with Server-Sent Events (SSE) streaming, Upstash Redis persistent conversation checkpointer, and a modern Obsidian Black Streamlit interface with native LaTeX mathematical equation rendering.
 
 ---
 
-## Key Features
+## Key Highlights & Core Capabilities
 
-* **Decoupled Client-Server Architecture:** Clean separation of concerns — a headless FastAPI backend manages ingestion, agent execution, and Server-Sent Events (SSE) streaming, while a dedicated Streamlit frontend acts purely as the user interface.
-* **Conversational Intent Router:** Distinguishes general greetings and chit-chat from document questions, replying warmly and instantly without redundant document searches.
-* **Self-RAG Architecture with LangGraph:** Autonomous state graph workflow featuring self-reflection, hallucination detection, and query transformation loops.
-* **Hybrid Retrieval (BM25 + Semantic Chroma):** Combines lexical keyword matching (BM25) and dense vector search (Chroma) fused via LangChain's native `EnsembleRetriever` using Reciprocal Rank Fusion (RRF).
-* **Safe Ingestion Batching:** Document splits are indexed in resilient batches (`EMBEDDING_BATCH_SIZE = 50`) to reliably process large PDFs without exceeding API batch limits.
-* **Fully Asynchronous Execution:** Entire graph is implemented with non-blocking async nodes (`ainvoke`) and concurrent evaluations (`asyncio.gather`) for parallel document grading and simultaneous hallucination/relevance verification.
-* **Conversational Checkpointer Memory:** Seamlessly preserves conversation history and context across multi-turn interactions (last 5 dialogue turns / 10 messages) using LangGraph's native in-memory checkpointer (`MemorySaver`).
-* **Document Relevance Reflection:** Filters out low-quality/irrelevant retrieved chunks concurrently before generation.
-* **Dynamic Query Transformation:** Automatically rewrites the query using memory context and retries retrieval if initial documents are insufficient or irrelevant.
-* **Hallucination & Faithfulness Guard:** Evaluates if generated responses are factually grounded in the provided document context.
-* **Answer Quality Assessment:** Checks that the final answer directly and comprehensively addresses the user's inquiry.
-* **Clean Conversational UI:** Distraction-free, centered chat experience with clean message streams.
-* **Smart Ingestion Caching:** Vectorstore indexing is cached so PDFs are only processed once per upload batch, eliminating rerun latency.
-* **Ollama Cloud Integration & Multi-Key Fallback:** High-performance reasoning powered by `gpt-oss:120b` via Ollama Cloud with automatic zero-downtime key failover (`with_fallbacks`) across multiple API keys on 429 rate limits or errors.
-* **Document & Table Parsing via `pdfplumber` & `PyMuPDF`:** Layout-aware PDF text extraction and tabular grid parsing into Markdown tables, with automatic fallbacks to PyMuPDF and `pypdf`.
-* **Observability with LangSmith:** Full execution tracing out-of-the-box to visualize the agent's graph operations, chunk retrievals, and evaluation steps.
-* **Docker Ready:** Fully containerized for easy and consistent deployments.
+* **Decoupled Architecture with Full Asynchronous Backend:**
+  - Headless FastAPI service managing document ingestion, agent orchestration, and real-time SSE token streaming.
+  - Fully asynchronous and non-blocking execution across all endpoints, database queries, and LangGraph nodes for maximum concurrency.
+* **Modular Domain Routers & Lifespan Management:**
+  - Clean separation of API endpoints into dedicated subfolders (`routes/health`, `routes/documents`, `routes/chat`, `routes/sessions`).
+  - Lifespan context manager (`@asynccontextmanager`) managing resource startup, singleton initialization, and graceful shutdown.
+  - Automated rotating file logger (`.logs/app.log`) with size-based rotation and file-watcher filter rules.
+* **Context-Aware LLM Query Rewriting & Disambiguation:**
+  - 100% LLM-driven query reformulation that eliminates fragile regex keyword lists.
+  - Automatically disambiguates pronouns (`it`, `they`, `this method`) and implicit follow-up inquiries (*"What were the parameter efficiency results?"*) into self-contained, keyword-rich academic queries using prior conversation history.
+  - Functions at both pre-retrieval dispatch (ensuring the very first search pass hits the vector store with concrete paper/concept names) and in corrective recovery loops.
+* **Autonomous Self-RAG State Graph:**
+  - Intelligent intent classification: separates conversational greetings and conceptual explanations from deep document inquiries and empirical fact-checking.
+  - Corrective retrieval loop: dynamically filters irrelevant passages, reformulates unhelpful queries, and searches across both uploaded research papers and broader academic literature.
+  - Hallucination guard: verifies generated statements against source evidence before delivering final responses.
+* **Scientific Claim Verification & Fact-Checking:**
+  - Autonomous fact-checking pipeline designed for academic literature.
+  - Evaluates research claims against peer-reviewed papers and live web evidence, assigning clear verdicts (`SUPPORTED`, `REFUTED`, `PARTIALLY_SUPPORTED`, `INCONCLUSIVE`) with confidence scores and superseding citations.
+* **Persistent Conversational Memory with Dual-Profile Modes:**
+  - State checkpointing backed by Upstash Redis REST storage for persistent cross-session memory (up to 20 conversation turns with 131k context window).
+  - **Dual Identity Modes:** Users can either specify a custom username to isolate, save, and reload their personal conversation history, or chat anonymously under a default profile.
+  - Left sidebar session drawer allows creating new research sessions, switching between chats, downloading transcripts, and clearing memory.
+* **Obsidian Black Major Theme & Polished UX:**
+  - Premium dark obsidian aesthetic with glassmorphism cards, subtle glows, and clean typography.
+  - Interactive citation drawer featuring page-level provenance, excerpt highlights, and visual page preview thumbnails from original PDFs.
+* **LaTeX & Markdown Mathematical Rendering:**
+  - Built-in mathematical normalization engine that standardizes display formulas (`\[ ... \]`), inline math (`\( ... \)`), and standalone environments (`equation`, `align`, `matrix`, `pmatrix`, `cases`) into KaTeX.
+  - Custom responsive containers with smooth horizontal scrolling for long equations, dark styled tables, and highlighted syntax code blocks.
+* **Ollama Cloud Multi-Key Resilience:**
+  - High-performance reasoning powered by `gpt-oss:120b` via Ollama Cloud.
+  - Automated zero-downtime key rotation that seamlessly falls back across secondary and tertiary API keys on rate limits or service interruptions.
+* **Multi-Tier PDF Ingestion Engine:**
+  - Layout-aware extraction using `pdfplumber` to preserve tabular grids as Markdown tables, with fallbacks to `PyMuPDF` (`fitz`) and `pypdf`.
+  - Fuses dense vector embeddings (Google Gemini) and sparse lexical search (BM25) via Reciprocal Rank Fusion.
+* **Optimized Multi-Stage Lightweight Docker Container:**
+  - Two-stage architecture (`builder` -> `runner`) that strips build-essential toolchains, C-compilers, test packages, and pyc caches from the final image.
+  - Minimal production attack surface with an integrated `HEALTHCHECK` for automated AWS EC2 self-healing.
 
 ---
-
-## Tech Stack
-
-* **Orchestration & Workflow:** [LangGraph](https://github.com/langchain-ai/langgraph), [LangChain Core](https://github.com/langchain-ai/langchain)
-* **Backend & Streaming API:** FastAPI, Uvicorn (Server-Sent Events)
-* **Frontend:** Streamlit
-* **LLM Provider:** Ollama Cloud (`gpt-oss:120b` via `langchain-ollama`)
-* **Hybrid Retrieval:** BM25 (`rank_bm25`), ChromaDB (`langchain-chroma`), LangChain `EnsembleRetriever`
-* **Embeddings:** Google Gemini Embeddings (`gemini-embedding-2`, 768 dimensions via `langchain-google-genai`)
-* **Document Processing:** `pdfplumber` (layout & tables), `PyMuPDF` (`fitz`), `pypdf`, RecursiveCharacterTextSplitter
-* **Observability:** LangSmith
 
 ## Agent Architecture & Workflow
+
+The diagram below illustrates the end-to-end conceptual flow of how the conversational research assistant interprets user queries, searches academic literature, verifies claims, checks for factual grounding, and maintains conversational context.
 
 ```mermaid
 flowchart TD
     %% Styling Classes
-    classDef inputNode fill:#E1F5FE,stroke:#0288D1,stroke-width:2px,color:#01579B;
-    classDef routerNode fill:#FFF9C4,stroke:#FBC02D,stroke-width:2px,color:#F57F17;
-    classDef agentNode fill:#F0F4C3,stroke:#AFB42B,stroke-width:2px,color:#827717;
-    classDef toolNode fill:#E8F5E9,stroke:#4CAF50,stroke-width:2px,color:#1B5E20;
-    classDef claimNode fill:#EDE7F6,stroke:#7E57C2,stroke-width:2px,color:#311B92;
-    classDef decisionNode fill:#FFE0B2,stroke:#FB8C00,stroke-width:2px,color:#E65100;
-    classDef synthNode fill:#C8E6C9,stroke:#2E7D32,stroke-width:2px,color:#1B5E20;
-    classDef outputNode fill:#B3E5FC,stroke:#0288D1,stroke-width:2px,color:#01579B;
-    classDef memNode fill:#FCE4EC,stroke:#D81B60,stroke-width:2px,color:#880E4F;
+    classDef startNode fill:#18181B,stroke:#38BDF8,stroke-width:2px,color:#F8FAFC;
+    classDef routerNode fill:#18181B,stroke:#F59E0B,stroke-width:2px,color:#F8FAFC;
+    classDef processNode fill:#18181B,stroke:#64748B,stroke-width:1.5px,color:#F8FAFC;
+    classDef decisionNode fill:#18181B,stroke:#FB923C,stroke-width:2px,color:#F8FAFC;
+    classDef claimNode fill:#18181B,stroke:#A855F7,stroke-width:2px,color:#F8FAFC;
+    classDef successNode fill:#18181B,stroke:#10B981,stroke-width:2px,color:#F8FAFC;
+    classDef memoryNode fill:#18181B,stroke:#EC4899,stroke-width:2px,color:#F8FAFC;
 
-    subgraph MEMORY["Memory & State Checkpointing"]
-        MEM[("LangGraph In-Memory Checkpointer<br/>MemorySaver thread_id=session_id<br/>Stores full state in RAM")]:::memNode
-        WIN["Sliding Window to LLMs<br/>MAX_CHAT_HISTORY_MESSAGES = 10<br/>(Last 5 turns: 5 User + 5 AI)"]:::memNode
-        MEM -.-> WIN
+    %% Memory Subgraph
+    subgraph CONVERSATION_MEMORY["Conversational Memory"]
+        MEM[("Persistent Conversation History & Context")]:::memoryNode
     end
 
-    subgraph INTAKE["1. Intake & Intent Classification"]
-        A(["START: User Query"]):::inputNode --> B{"router<br/>(Fast Paths + LLM)"}:::routerNode
+    %% Intake & Intent
+    subgraph INTAKE["1. User Intake & Intent Understanding"]
+        START(["User Query or Academic Claim"]):::startNode
+        ROUTER{"Determine User Intent"}:::routerNode
+        START --> ROUTER
     end
 
-    subgraph RETRIEVAL["2. Literature Retrieval & Corrective Self-RAG Loop"]
-        C["agent_node<br/>(Tool Planner)"]:::agentNode
-        E{"Tool Calls?"}:::decisionNode
-        F["execute_tools<br/>(Concurrent Execution)"]:::toolNode
-        F1["retrieve_from_vectorstore<br/>(ChromaDB + BM25 Hybrid)"]:::toolNode
-        F2["web_search<br/>(Tavily / ArXiv Fallback)"]:::toolNode
-        G["Tool Messages Appended"]:::toolNode
-        J{"Attempts >= 3?"}:::decisionNode
-        I["relevancy_check<br/>(Parallel Chunk Grading)"]:::agentNode
-        K{"Chunks<br/>Relevant?"}:::decisionNode
-        L["query_rewrite<br/>(Academic Keyword Expansion)"]:::agentNode
-        M["new_query_to_agent<br/>(Resubmit State)"]:::agentNode
+    %% Document Research Branch
+    subgraph RESEARCH["2. Literature Retrieval & Self-Correction"]
+        SEARCH["Search Uploaded Documents & Scientific Literature"]:::processNode
+        EVAL_DOCS{"Are Retrieved Passages Relevant?"}:::decisionNode
+        REWRITE["Refine & Reformulate Research Query"]:::processNode
 
-        C --> E
-        E -- "Yes" --> F
-        F --> F1 & F2
-        F1 & F2 --> G
-        G --> C
-        
-        E -- "No / Done" --> J
-        J -- "No" --> I
-        I --> K
-        K -- "No & Rewrites < 1" --> L
-        L --> M
-        M --> C
+        SEARCH --> EVAL_DOCS
+        EVAL_DOCS -- "No" --> REWRITE
+        REWRITE --> SEARCH
     end
 
-    subgraph CLAIM_PIPELINE["3. Claim Verification Pipeline"]
-        D["claim_verification<br/>(Pipeline Init)"]:::claimNode
-        D1["claim_web_search<br/>(Concurrent Tavily + ArXiv)"]:::claimNode
-        D2["claim_analysis<br/>(Evidence Cross-Examination)"]:::claimNode
-        D3["claim_verdict<br/>(Verdict + Superseding Papers)"]:::claimNode
+    %% Fact-Checking Branch
+    subgraph FACT_CHECK["3. Fact-Checking & Claim Verification"]
+        FIND_EVIDENCE["Gather Scientific Evidence & Published Literature"]:::claimNode
+        ANALYZE_CLAIM["Cross-Examine Findings Against the Claim"]:::claimNode
+        VERDICT["Produce Scientific Verdict & Flag Superseding Work"]:::claimNode
 
-        D --> D1 --> D2 --> D3
+        FIND_EVIDENCE --> ANALYZE_CLAIM --> VERDICT
     end
 
-    subgraph SYNTHESIS["4. Synthesis, Groundedness & Output Delivery"]
-        H["generate_answer<br/>(Context + History Synthesis)"]:::synthNode
-        S{"Self-RAG Groundedness<br/>Hallucination Grader"}:::synthNode
-        N["format_answer<br/>(Citations & Metadata Packaging)"]:::synthNode
-        O["return_to_ui<br/>(Graph Sink)"]:::outputNode
-        END_NODE(["END: Deliver to UI / API"]):::outputNode
+    %% Synthesis & Delivery
+    subgraph SYNTHESIS["4. Grounded Synthesis & Delivery"]
+        GENERATE["Synthesize Comprehensive & Coherent Response"]:::processNode
+        CHECK_FACTS{"Verify Factual Grounding in Evidence"}:::decisionNode
+        FINALIZE["Format Response with Equations & Citation Badges"]:::processNode
+        OUTPUT(["Deliver Live Response Stream to User"]):::successNode
 
-        H --> S --> N --> O --> END_NODE
+        GENERATE --> CHECK_FACTS
+        CHECK_FACTS -- "Grounded" --> FINALIZE
+        CHECK_FACTS -- "Speculative / Unverified" --> FINALIZE
+        FINALIZE --> OUTPUT
     end
 
-    %% Branch connections from Router
-    B -- "route: 'retrieve'" --> C
-    B -- "route: 'verify_claim'" --> D
-    B -- "route: 'direct_answer'" --> H
+    %% Routing Decisions
+    ROUTER -- "Document Question" --> SEARCH
+    ROUTER -- "Verify Claim" --> FIND_EVIDENCE
+    ROUTER -- "General Conversation" --> GENERATE
 
-    %% Retrieval Exits to Synthesis
-    J -- "Yes (Max Retries)" --> H
-    K -- "Yes (Relevant Docs)" --> H
-    K -- "No (Max Rewrites >= 1)" --> H
+    %% Exits into Synthesis
+    EVAL_DOCS -- "Yes" --> GENERATE
+    VERDICT --> GENERATE
 
-    %% Claim Exit to Synthesis
-    D3 --> H
-
-    %% Memory feeds
-    WIN -.-> C
-    WIN -.-> H
+    %% Memory Interactions
+    MEM -.-> ROUTER
+    MEM -.-> SEARCH
+    MEM -.-> REWRITE
+    MEM -.-> GENERATE
+    OUTPUT -.-> MEM
 ```
 
-### End-to-End Workflow Breakdown
+### Workflow Walkthrough
 
-1. **Intake & Intent Classification (`router`):**
-   - The user query is evaluated via deterministic fast paths (greetings, claim keywords, PDF-specific cues) with LLM classification fallback into one of three routes: `retrieve`, `verify_claim`, or `direct_answer`.
-2. **Literature Retrieval & Corrective Self-RAG Loop (`agent_node` $\leftrightarrow$ `execute_tools`):**
-   - **`agent_node`:** Coordinates tool dispatches for the current query and filters prior turns.
-   - **`execute_tools`:** Concurrently queries **ChromaDB + BM25 Hybrid Ensemble** and **Tavily / ArXiv**, returning chunks and updating retrieval attempt counts.
-   - **`relevancy_check`:** Uses an evaluator LLM to grade retrieved chunks concurrently, dropping irrelevant noise.
-   - **`query_rewrite` & `new_query_to_agent`:** If all passages fail relevance, the query is reformulated with academic terminology and cycled back to `agent_node` (bounded by `MAX_QUERY_REWRITES = 1` and `MAX_RETRIEVAL_ATTEMPTS = 3`).
-3. **Claim Verification Pipeline (`claim_verification` $\rightarrow$ `claim_verdict`):**
-   - **`claim_web_search`:** Gathers empirical evidence from both live web sources and peer-reviewed ArXiv papers in parallel.
-   - **`claim_analysis`:** Cross-examines literature to assign a verdict (`SUPPORTED`, `REFUTED`, `PARTIALLY_SUPPORTED`, `INCONCLUSIVE`) with confidence scoring.
-   - **`claim_verdict`:** Packages verdict results and flags any superseding research.
-4. **Direct Answer Branch (`direct_answer`):**
-   - Skips tool execution for conversational pleasantries, greetings, and common conceptual explanations.
-5. **Answer Synthesis, Self-RAG Groundedness & Output Delivery:**
-   - **`generate_answer`:** Synthesizes an authoritative answer conditioned on verified context and conversation history.
-   - **Self-RAG Groundedness Guard (`_check_groundedness`):** Evaluates whether the generated response is strictly grounded in evidence, flagging speculative assertions or hallucinations.
-   - **`format_answer` & `return_to_ui`:** Binds clickable citations, provenance metadata, and verdict badges, delivering the final response to the UI/API.
+1. **Intake & Intent Understanding:**
+   - The user query is analyzed to understand the context of the inquiry. It directs the workflow to the appropriate track: deep literature search, empirical claim fact-checking, or direct conversational synthesis.
+2. **Context-Aware Retrieval & Self-Correction:**
+   - Evaluates whether indexed passages from uploaded research papers or external scientific literature answer the question.
+   - When conversational history exists, the LLM autonomously resolves ambiguous follow-up questions and pronouns (e.g., *"What were its parameter efficiency results?"*) into concrete, self-contained search terms before querying ChromaDB and BM25.
+   - If initial passages are incomplete or off-target, the query is autonomously reformulated using academic nomenclature and searched again.
+3. **Scientific Claim Verification:**
+   - Scientific propositions undergo targeted literature reviews, cross-examining published evidence to produce a verified verdict (`SUPPORTED`, `REFUTED`, `PARTIALLY_SUPPORTED`, or `INCONCLUSIVE`) accompanied by citations of any superseding studies.
+4. **Grounded Answer Synthesis & KaTeX Formatting:**
+   - The response is composed from verified evidence and previous conversational turns.
+   - An integrated factual grounding check screens the draft against hallucinations before formatting the text with clickable citations, evidence quotes, and LaTeX mathematical equations.
+5. **Persistent Conversation Memory:**
+   - Dialogue turns are saved to persistent cloud storage via Upstash Redis REST checkpointer, maintaining multi-turn context (up to 20 turns) across chat sessions and client reloads.
 
 ---
 
-### Memory & Conversation Turn Management
+## Technology Stack
 
-| Component | Implementation | Capacity / Window | Details |
+| Layer | Technologies |
+| :--- | :--- |
+| **Workflow & Agent Orchestration** | LangGraph, LangChain Core |
+| **Backend & Streaming API** | FastAPI, Uvicorn, Server-Sent Events (SSE) |
+| **Frontend & User Interface** | Streamlit, Vanilla CSS (Obsidian Black Theme) |
+| **Mathematical Rendering** | KaTeX Mathematical Engine, Markdown Normalizer |
+| **Reasoning Model (LLM)** | Ollama Cloud (`gpt-oss:120b`) with multi-key failover |
+| **Hybrid Document Retrieval** | ChromaDB (Dense Vectors), BM25 (Sparse Lexical), Ensemble Reciprocal Rank Fusion |
+| **Embeddings Model** | Google Gemini Embeddings (`gemini-embedding-2`, 768 dimensions) |
+| **Document Parsing** | `pdfplumber` (layout & tables), `PyMuPDF` (`fitz`), `pypdf` |
+| **External Literature Tools** | Tavily Web Search API, ArXiv Public Literature API |
+| **State Persistence & Memory** | Upstash Redis Cloud REST API, LangGraph Checkpointer |
+| **Observability & Tracing** | LangSmith |
+| **Containerization & Deployment** | Docker (Multi-Stage Lightweight Build), Amazon ECR, AWS CodeDeploy |
+
+---
+
+## Project Structure
+
+```text
+conversational-research-rag/
+│
+├── backend/                              # Full Asynchronous Backend
+│   ├── api.py                            # FastAPI app assembly with lifespan & rotating logs
+│   ├── main.py                           # Application entrypoint alias
+│   ├── config.py                         # Environment, LLMs, embeddings & API settings
+│   │
+│   ├── routes/                           # Modular API Routers by Domain
+│   │   ├── __init__.py                   # Aggregates & exposes all sub-routers
+│   │   ├── health/                       # Health & root endpoints (GET /, GET /health)
+│   │   │   └── router.py
+│   │   ├── documents/                    # PDF upload & vector ingestion (POST /upload)
+│   │   │   └── router.py
+│   │   ├── chat/                         # Query execution & SSE streaming (POST /chat, POST /chat/stream)
+│   │   │   └── router.py
+│   │   └── sessions/                     # Upstash Redis user sessions & memory lifecycle
+│   │       └── router.py
+│   │
+│   ├── services/                         # Business & Orchestration Layer
+│   │   ├── __init__.py                   # Re-exports AgentService & QueryResult
+│   │   └── agent_service.py              # LangGraph workflow compilation & streaming engine
+│   │
+│   ├── database/                         # State Persistence & Memory Layer
+│   │   ├── __init__.py                   # Checkpointer factory & session state functions
+│   │   └── redis.py                      # Upstash Redis async/sync checkpointer & session storage
+│   │
+│   ├── schemas/                          # Pydantic Schemas & State Models
+│   │   ├── __init__.py
+│   │   ├── state.py                      # GraphState definition
+│   │   ├── router.py                     # RouterDecision schema
+│   │   ├── relevancy.py                  # DocumentRelevanceGrade schema
+│   │   ├── rewrite.py                    # QueryRewrite schema
+│   │   └── claim.py                      # ClaimAnalysisResult & SupersedingPaper schemas
+│   │
+│   ├── prompts/                          # Centralized LangChain Prompts
+│   │   ├── __init__.py
+│   │   ├── router.py                     # Intent routing prompt
+│   │   ├── agent.py                      # Tool selection prompt
+│   │   ├── relevancy.py                  # Document grading prompt
+│   │   ├── rewrite.py                    # Academic query expansion prompt
+│   │   ├── claim.py                      # Literature claim analysis prompt
+│   │   └── generation.py                 # Grounded synthesis prompt
+│   │
+│   ├── graph/                            # LangGraph StateGraph Architecture
+│   │   ├── __init__.py
+│   │   ├── edges.py                      # Conditional routing edges
+│   │   ├── workflow.py                   # Graph compilation (build_graph)
+│   │   └── nodes/                        # Async Node Handlers
+│   │       ├── __init__.py
+│   │       ├── router_node.py            # Intent classification node
+│   │       ├── agent_node.py             # Context-aware tool coordination & execution node
+│   │       ├── relevancy_node.py         # Concurrent document relevance check
+│   │       ├── rewrite_node.py           # Contextual query reformulation & fallback node
+│   │       ├── claim_node.py             # ArXiv search, claim analysis & verdict
+│   │       └── generation_node.py        # Conversational answer generation & Self-RAG grounding
+│   │
+│   ├── tools/                            # External Research Tools
+│   │   ├── __init__.py
+│   │   └── tools.py                      # Tavily web search, ArXiv query & vectorstore tools
+│   │
+│   ├── ingestion/                        # Document Ingestion Pipeline
+│   │   ├── __init__.py
+│   │   ├── loader.py                     # Layout-aware PDF & table parser
+│   │   ├── splitter.py                   # Recursive character text chunker
+│   │   ├── retriever.py                  # Hybrid EnsembleRetriever (Chroma + BM25)
+│   │   └── pipeline.py                   # Async ingestion pipeline
+│   │
+│   └── utils/                            # Shared Utilities
+│       ├── __init__.py
+│       └── helpers.py                    # Document formatters, citation extractors, async runner
+│
+├── frontend/                             # Streamlit Client Interface
+│   ├── __init__.py
+│   ├── app.py                            # Streamlit chat application
+│   ├── api_client.py                     # Async-ready HTTP & SSE communication layer
+│   ├── styles.py                         # Obsidian Black major theme styling & KaTeX CSS
+│   │
+│   └── components/                       # Modular UI Components by Domain
+│       ├── __init__.py                   # Re-exports all components for seamless access
+│       ├── common/                       # Header, welcome state & document cards
+│       │   ├── __init__.py
+│       │   ├── header.py
+│       │   ├── welcome.py
+│       │   └── documents.py
+│       ├── sidebar/                      # User profile identity & session sidebar
+│       │   ├── __init__.py
+│       │   ├── identity.py
+│       │   └── sessions.py
+│       ├── citations/                    # Verdict badges, grounding status & visual PDF preview
+│       │   ├── __init__.py
+│       │   ├── badges.py
+│       │   └── sources.py
+│       └── chat/                         # LaTeX normalizer, message turns & history renderer
+│           ├── __init__.py
+│           ├── formatter.py
+│           └── messages.py
+│
+├── deploy/                               # Deployment & Infrastructure
+│   └── scripts/
+│       ├── install_dependencies.sh       # Server dependency bootstrapper
+│       ├── start_docker.sh               # ECR login & container runner
+│       └── stop_docker.sh                # Clean container shutdown
+│
+├── .github/workflows/                    # CI/CD Workflows
+│   └── deploy.yml                        # Automated testing, building & AWS EC2 deployment
+│
+├── app.py                                # Root runner: streamlit run app.py
+├── api.py                                # Root runner: fastapi dev api.py / uvicorn api:app
+├── entrypoint.sh                         # Multi-process container launcher
+├── requirements.txt                      # Project dependencies
+├── .env / .env.rag                       # Environment variables
+├── Dockerfile                            # Docker multi-service container build
+└── README.md                             # Documentation & Architecture
+```
+
+---
+
+## API Reference & Endpoints
+
+The FastAPI backend exposes fully asynchronous, modular REST endpoints organized by domain:
+
+| Domain | Method | Endpoint | Description |
 | :--- | :--- | :--- | :--- |
-| **Checkpointer** | LangGraph `MemorySaver` | Process RAM (In-Memory) | Checkpoints state per `session_id` (`thread_id`) without external database dependencies. |
-| **LLM Context Window** | `filter_messages` | **10 messages (5 turns)** | Configured via `MAX_CHAT_HISTORY_MESSAGES = 10`. Passes the last 5 human-AI dialogue turns to `agent_node` and `generate_answer` to maintain conversational continuity while avoiding context dilution. |
-| **UI History** | Streamlit `st.session_state` | Full session transcript | Preserves and displays the complete interaction history in the chat sidebar and message thread. |
+| **System** | `GET` | `/` | Root greeting and API running confirmation. |
+| **Health** | `GET` | `/health` | Service health status and active retriever indexing check. |
+| **Documents** | `POST` | `/upload` | Multipart PDF upload. Parses layout, chunks text, creates embeddings, and updates the hybrid retriever. |
+| **Chat** | `POST` | `/chat` | Executes LangGraph research query synchronously, returning formatted answer, verdict, and citations. |
+| **Streaming** | `POST` | `/chat/stream` | Server-Sent Events (SSE) streaming progress status, real-time tokens, and final answer payload. |
+| **Sessions** | `GET` | `/user/{username}/sessions` | Fetches stored conversation sessions for a user from Upstash Redis (or in-memory cache). |
+| **Sessions** | `POST` | `/user/{username}/sessions` | Persists conversation sessions dictionary for a user to Upstash Redis. |
+| **Sessions** | `DELETE`| `/user/{username}/session/{session_id}` | Deletes a single conversation session and its LangGraph checkpointer memory. |
+| **Memory** | `POST` | `/session/{session_id}/clear` | Clears conversation state checkpointer memory for a specific session ID. |
+| **Memory** | `POST` | `/user/{username}/clear` | Clears all conversation sessions and checkpointer memory threads for a user. |
+
+### Streaming Event Format (`POST /chat/stream`)
+The streaming endpoint delivers live Server-Sent Events with standard JSON payloads:
+* **Node Status:** `data: {"type": "status", "node": "agent_reasoning"}`
+* **Token Chunks:** `data: {"type": "token", "content": "..."}`
+* **Final Synthesis:** `data: {"type": "final", "answer": "...", "route": "retrieve", "sources": [...], "claim_analysis": {...}, "reflection_logs": [...]}`
+* **Termination:** `data: [DONE]`
+
+---
+
+## Port Mappings & Network Architecture
+
+| Service | Local Dev Port | Container Port | AWS EC2 Host Port |
+| :--- | :--- | :--- | :--- |
+| **FastAPI Backend & API Docs** | `8000` | `8000` | `8001` (`8001:8000`) |
+| **Streamlit User Interface** | `8501` | `7860` | `8502` (`8502:7860`) |
+
+> [!NOTE]
+> All port numbers are strictly preserved across local runs, Docker containerization, and AWS EC2 deployments to prevent breaking upstream proxies or reverse routing.
 
 ---
 
@@ -179,8 +325,8 @@ flowchart TD
 * Python 3.11+
 * [Ollama Cloud Account & API Key](https://ollama.com/settings/keys)
 * [Google AI Studio API Key](https://aistudio.google.com/app/apikey) (for Gemini Embeddings)
-* [Tavily API Key](https://app.tavily.com) (optional, for live web research; falls back to ArXiv)
-* [Hugging Face Token](https://huggingface.co/settings/tokens) (optional)
+* [Upstash Redis REST Database](https://upstash.com) (for persistent conversation history)
+* [Tavily API Key](https://app.tavily.com) (optional, for live web search; falls back to ArXiv)
 
 ### 1. Clone the Repository
 
@@ -189,25 +335,31 @@ git clone git@github-personal:Aryanupadhyay23/conversational-research-rag.git
 cd conversational-research-rag
 ```
 
-### 2. Set Up Environment Variables
+### 2. Configure Environment Variables
 
-Create a `.env` file (or `.env.rag` on shared servers like EC2 to avoid collisions) in the root directory:
+Create a `.env` file (or `.env.rag` on shared production servers) in the project root:
 
 ```env
-# Ollama Cloud Configuration (supports single key or multi-key automatic failover)
+# Ollama Cloud Configuration (single key or multi-key automatic failover)
 OLLAMA_API_KEY_ONE="your_primary_ollama_key"
 OLLAMA_API_KEY_TWO="your_secondary_backup_key"
-OLLAMA_API_KEY_THREE="your_third_backup_key"
-# Alternatively, single key:
-# OLLAMA_API_KEY="your_single_key"
+OLLAMA_API_KEY_THREE="your_tertiary_backup_key"
 
 OLLAMA_MODEL="gpt-oss:120b"
+OLLAMA_NUM_CTX=131072
 OLLAMA_BASE_URL="https://ollama.com"
+MAX_CHAT_HISTORY_MESSAGES=20
+RETRIEVER_K=6
+
+# Embeddings & External Search
 GOOGLE_API_KEY="your_google_gemini_api_key"
 TAVILY_API_KEY="your_tavily_api_key"
-HF_TOKEN="your_huggingface_token"
 
-# Optional: LangSmith Tracing
+# Upstash Redis Configuration (LangGraph Checkpointer & User Session Storage)
+UPSTASH_REDIS_REST_URL="https://your-database.upstash.io"
+UPSTASH_REDIS_REST_TOKEN="your_upstash_token"
+
+# Optional: LangSmith Observability
 LANGCHAIN_TRACING_V2=true
 LANGCHAIN_API_KEY="your_langsmith_api_key"
 LANGCHAIN_PROJECT="PDF_RAG_CHATBOT"
@@ -215,7 +367,7 @@ LANGCHAIN_PROJECT="PDF_RAG_CHATBOT"
 
 ---
 
-### Option A: Local Installation
+### Option A: Local Development
 
 1. **Install dependencies:**
 
@@ -223,147 +375,73 @@ LANGCHAIN_PROJECT="PDF_RAG_CHATBOT"
    pip install -r requirements.txt
    ```
 
-2. **Start the FastAPI Backend (Terminal 1):**
-
-   The backend orchestrates PDF parsing, vector indexing, LangGraph state machine execution, and SSE token streaming:
+2. **Launch the FastAPI Backend (Terminal 1):**
 
    ```bash
    uvicorn api:app --reload --port 8000
    ```
 
-   The backend API will start at `http://localhost:8000` (interactive OpenAPI docs at `http://localhost:8000/docs`).
+   * Backend API: `http://localhost:8000`
+   * Interactive Swagger Docs: `http://localhost:8000/docs`
 
-3. **Start the Streamlit Frontend (Terminal 2):**
-
-   The frontend is a dedicated client UI that sends PDF uploads to the FastAPI backend and live-streams assistant responses from the `/chat/stream` endpoint:
+3. **Launch the Streamlit Frontend (Terminal 2):**
 
    ```bash
    streamlit run app.py
    ```
 
-   The web interface will open at `http://localhost:8501`. It connects to `BACKEND_URL=http://localhost:8000` by default.
+   * Chat Interface: `http://localhost:8501` (communicates with `http://localhost:8000` by default).
 
 ---
 
-### Option B: Docker Deployment
+### Option B: Docker Deployment (Single Command)
 
-When deploying via Docker, you **only run a single command**. The container automatically launches both services via [`entrypoint.sh`](entrypoint.sh):
-* **FastAPI Backend** starts in the background on port `8000`.
-* **Streamlit Frontend** starts in the foreground on port `7860` and communicates with the backend over internal `http://localhost:8000`.
+The container leverages an **optimized multi-stage build** (`builder` -> `runner`) that isolates compilation tools and strips pyc bytecode caches, resulting in a minimal runtime image. Both FastAPI and Streamlit run concurrently via [`entrypoint.sh`](entrypoint.sh) with integrated container health checking:
 
-1. **Build the Docker image:**
+1. **Build the Docker Image:**
 
    ```bash
    docker build -t conversational-research-rag .
    ```
 
-2. **Run the Docker container (Single Command):**
+2. **Run the Container:**
 
    ```bash
    docker run -p 7860:7860 -p 8000:8000 --env-file .env conversational-research-rag
    ```
 
-   * **Streamlit Chat UI**: Access at `http://localhost:7860`
-   * **FastAPI REST & Streaming API**: Access at `http://localhost:8000` (Interactive Swagger docs at `http://localhost:8000/docs`)
-
-   *(Note: On platforms like Hugging Face Spaces that expose a single port `7860`, Streamlit serves the web interface on `7860` while communicating with FastAPI internally over port `8000`).*
-
----
-
-## Project Structure
-
-```text
-conversational-research-rag/
-│
-├── backend/                              # Complete Backend Core
-│   ├── config.py                         # LLM, embeddings & API configuration
-│   ├── service.py                        # Orchestrator service (AgentService)
-│   ├── api.py                            # FastAPI streaming backend endpoint
-│   │
-│   ├── schemas/                          # Pydantic Schemas & State (in one folder)
-│   │   ├── __init__.py                   # Re-exports all schemas
-│   │   ├── state.py                      # GraphState schema
-│   │   ├── router.py                     # RouterDecision schema
-│   │   ├── relevancy.py                  # DocumentRelevanceGrade schema
-│   │   ├── rewrite.py                    # QueryRewrite schema
-│   │   └── claim.py                      # ClaimAnalysisResult & SupersedingPaper
-│   │
-│   ├── prompts/                          # LangChain Prompts (in one folder)
-│   │   ├── __init__.py                   # Re-exports all prompts
-│   │   ├── router.py                     # router_prompt
-│   │   ├── agent.py                      # agent_system_prompt
-│   │   ├── relevancy.py                  # relevancy_prompt
-│   │   ├── rewrite.py                    # query_rewrite_prompt
-│   │   ├── claim.py                      # claim_analysis_prompt
-│   │   └── generation.py                 # answer_generation_prompt
-│   │
-│   ├── graph/                            # LangGraph StateGraph Architecture
-│   │   ├── __init__.py                   # Graph exports
-│   │   ├── edges.py                      # Conditional routing edges
-│   │   ├── workflow.py                   # Single compilation file (build_graph)
-│   │   └── nodes/                        # Separated LangGraph Nodes
-│   │       ├── __init__.py               # Re-exports all nodes
-│   │       ├── router_node.py            # Router decision node
-│   │       ├── agent_node.py             # Agent Node & Tool execution
-│   │       ├── relevancy_node.py         # Document relevance grading
-│   │       ├── rewrite_node.py           # Query rewrite & state resubmission
-│   │       ├── claim_node.py             # Claim search, analysis & verdict
-│   │       └── generation_node.py        # Answer generation & metadata formatting
-│   │
-│   ├── tools/                            # External Tools
-│   │   ├── __init__.py                   # Tool exports
-│   │   └── tools.py                      # Tavily search, ArXiv query & vectorstore
-│   │
-│   ├── ingestion/                        # Document & Vector Processing
-│   │   ├── __init__.py
-│   │   ├── loader.py                     # Multi-tier PDF parsing (pdfplumber tables, PyMuPDF, pypdf)
-│   │   ├── splitter.py                   # RecursiveCharacterTextSplitter
-│   │   ├── retriever.py                  # Hybrid EnsembleRetriever (BM25 + Chroma)
-│   │   └── pipeline.py                   # End-to-end ingestion pipeline
-│   │
-│   └── utils/                            # Shared Utilities
-│       ├── __init__.py
-│       └── helpers.py                    # Async safe runner, document formatters
-│
-├── frontend/                             # Streamlit Frontend (Decoupled)
-│   ├── __init__.py
-│   ├── app.py                            # Streamlit chat interface
-│   ├── api_client.py                     # HTTP & SSE client communicating with FastAPI
-│   ├── components.py                     # Message renderer, badges & citation expanders
-│   └── styles.py                         # Custom dark blue black CSS styling
-│
-├── deploy/                               # Deployment & Infrastructure Scripts
-│   └── scripts/
-│       ├── install_dependencies.sh       # EC2 dependency bootstrapper (Docker & AWS CLI)
-│       ├── start_docker.sh               # ECR login & container launcher with .env.rag support
-│       └── stop_docker.sh                # Container stopper & cleaner
-│
-├── .github/workflows/                    # CI/CD Workflows
-│   ├── deploy.yml                        # GitHub Actions automated test, build & AWS CodeDeploy
-│   └── keep_alive.yml                    # 24h cron heartbeat ping for Hugging Face Space
-│
-├── app.py                                # Root runner: streamlit run app.py
-├── api.py                                # Root runner: uvicorn api:app
-├── entrypoint.sh                         # Multi-process container launcher
-├── requirements.txt                      # Project dependencies
-├── .env / .env.rag                       # Environment variables (supports .env.rag on shared EC2)
-├── .dockerignore                         # Container ignore rules (excluding credentials & caches)
-├── Dockerfile                            # Docker multi-service container configuration
-├── appspec.yml                           # AWS CodeDeploy application specification
-└── README.md                             # Documentation & Mermaid workflow
-```
+   * **Web Interface:** Access at `http://localhost:7860`
+   * **API Documentation:** Access at `http://localhost:8000/docs`
+   * **Container Health Status:** Monitored automatically via `HEALTHCHECK` (`http://localhost:8000/health`)
 
 ---
 
-## Example Use Cases
+### Option C: Production Deployment on AWS EC2 (Automated CI/CD)
 
-* **Research Paper Q&A:** Deep dive into complex papers with hallucination-checked citations.
-* **Technical Manuals & Documentation:** Pinpoint exact steps and verify factual accuracy.
-* **Legal & Contract Analysis:** Ensure responses reflect only the uploaded text.
-* **Educational Assistant:** Chat with textbooks and lecture notes with conversational memory.
+The application is deployed to **Amazon EC2** using GitHub Actions, Amazon ECR, and AWS CodeDeploy:
+
+1. **Automated Pipeline ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)):**
+   - Automatically runs syntax verification and compilation smoke tests on push to `main` / `master`.
+   - Builds the production Docker image and pushes it to **Amazon ECR**.
+   - Packages [`appspec.yml`](appspec.yml) and deployment scripts (`deploy/scripts/`) into an S3 bundle.
+   - Triggers **AWS CodeDeploy** to perform a zero-downtime rolling update on your EC2 instance.
+
+2. **EC2 Host Port Mappings:**
+   - **Streamlit Interface:** `http://<EC2-HOST-IP>:8502` (mapped to container port `7860`).
+   - **FastAPI Backend:** `http://<EC2-HOST-IP>:8001` (mapped to container port `8000`).
+   - Managed automatically via [`deploy/scripts/start_docker.sh`](deploy/scripts/start_docker.sh) with automatic restart policies.
+
+---
+
+## Example Research Use Cases
+
+* **Academic Paper Analysis:** Upload multiple related papers, ask comparative synthesis questions, and receive citation-backed answers with page-level previews.
+* **Empirical Claim Verification:** Fact-check scientific claims, benchmark findings, or methodologies against published literature with automated verdict grading.
+* **Mathematical & Algorithmic Discovery:** Explore complex equations, loss functions, or proofs rendered with high-contrast LaTeX formatting.
+* **Long-Term Literature Tracking:** Organize multi-turn research conversations under dedicated user profiles backed by persistent cloud storage.
 
 ---
 
 ## License
 
-This project is open-source and available under the [MIT License](LICENSE).
+This project is open-source and distributed under the [MIT License](LICENSE).

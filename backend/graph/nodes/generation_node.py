@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import re
-from typing import Optional
+from typing import Literal
+
+from pydantic import BaseModel, Field
 from langchain_core.messages import AIMessage, filter_messages
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -12,6 +14,12 @@ from backend.utils.helpers import format_docs_to_context, extract_sources_metada
 from backend.config import MAX_CHAT_HISTORY_MESSAGES
 
 logger = logging.getLogger(__name__)
+
+class GroundednessGrade(BaseModel):
+    """Self-RAG Groundedness evaluation schema."""
+    is_grounded: bool = Field(description="True if facts are strictly supported by context, False if hallucinated.")
+    confidence: Literal["HIGH", "MEDIUM", "LOW"] = Field(default="HIGH", description="Confidence assessment.")
+    reason: str = Field(description="Brief explanation of factual alignment.")
 
 GROUNDING_PROMPT = ChatPromptTemplate.from_messages([
     ("system", (
@@ -25,15 +33,6 @@ GROUNDING_PROMPT = ChatPromptTemplate.from_messages([
     ("human", "CONTEXT:\n{context}\n\nANSWER:\n{answer}")
 ])
 
-from pydantic import BaseModel, Field
-from typing import Literal
-
-class GroundednessGrade(BaseModel):
-    """Self-RAG Groundedness evaluation schema."""
-    is_grounded: bool = Field(description="True if facts are strictly supported by context, False if hallucinated.")
-    confidence: Literal["HIGH", "MEDIUM", "LOW"] = Field(default="HIGH", description="Confidence assessment.")
-    reason: str = Field(description="Brief explanation of factual alignment.")
-
 async def _check_groundedness(answer: str, context: str, eval_llm) -> dict:
     """Evaluate whether the generated response is grounded in evidence without hallucination."""
     if not eval_llm or not context or context == "No external documents.":
@@ -43,8 +42,8 @@ async def _check_groundedness(answer: str, context: str, eval_llm) -> dict:
         try:
             chain = GROUNDING_PROMPT | eval_llm.with_structured_output(GroundednessGrade)
             res: GroundednessGrade = await asyncio.wait_for(
-                chain.ainvoke({"context": context[:3000], "answer": answer[:2000]}),
-                timeout=4.5
+                chain.ainvoke({"context": context[:25000], "answer": answer[:8000]}),
+                timeout=8.0
             )
             return {
                 "is_grounded": res.is_grounded,
@@ -54,8 +53,8 @@ async def _check_groundedness(answer: str, context: str, eval_llm) -> dict:
         except Exception:
             chain = GROUNDING_PROMPT | eval_llm | StrOutputParser()
             raw = await asyncio.wait_for(
-                chain.ainvoke({"context": context[:3000], "answer": answer[:2000]}),
-                timeout=4.5
+                chain.ainvoke({"context": context[:25000], "answer": answer[:8000]}),
+                timeout=8.0
             )
             raw_upper = raw.upper()
             is_grounded = "GROUNDED: YES" in raw_upper or (

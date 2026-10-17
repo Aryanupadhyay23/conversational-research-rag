@@ -1,8 +1,8 @@
 import logging
-import re
 from langchain_core.output_parsers import StrOutputParser
 
 from backend.schemas.state import GraphState
+from backend.schemas.router import RouterDecision
 from backend.prompts.router import router_prompt
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,6 @@ async def router_node(state: GraphState, eval_llm) -> dict:
     else:
         try:
             try:
-                from backend.schemas.router import RouterDecision
                 chain = router_prompt | eval_llm.with_structured_output(RouterDecision)
                 res: RouterDecision = await chain.ainvoke({"question": question})
                 decision = res.decision

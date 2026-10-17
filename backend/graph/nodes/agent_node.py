@@ -5,22 +5,32 @@ from langchain_core.messages import AIMessage, ToolMessage, filter_messages
 from backend.schemas.state import GraphState
 from backend.prompts.agent import agent_prompt
 from backend.tools.tools import search_tavily_async, execute_retriever
-from backend.config import MAX_RETRIEVAL_ATTEMPTS, MAX_CHAT_HISTORY_MESSAGES
+from backend.config import MAX_CHAT_HISTORY_MESSAGES, MAX_RETRIEVAL_ATTEMPTS
+from backend.graph.nodes.rewrite_node import rewrite_query_with_context
 
 logger = logging.getLogger(__name__)
 
-async def agent_node(state: GraphState, agent_llm, retriever) -> dict:
+async def agent_node(state: GraphState, agent_llm, retriever, eval_llm=None) -> dict:
     """Agent evaluates current query and context to dispatch tools or conclude."""
     current_query = state.get("current_query", state["question"])
     messages = list(state.get("messages", []))
     logs = list(state.get("reflection_logs", []))
     retrieval_attempts = state.get("retrieval_attempts", 0)
 
-    # Native LangChain message filtering
-    history = filter_messages(messages, include_types=["human", "ai"])[-MAX_CHAT_HISTORY_MESSAGES:]
+    # Native LangChain message filtering (excluding current turn's message)
+    history = filter_messages(messages, include_types=["human", "ai"])[:-1][-MAX_CHAT_HISTORY_MESSAGES:]
+
+    # On first retrieval pass: Use LLM to contextualize & reformulate query using chat history
+    if retrieval_attempts == 0 and history and eval_llm:
+        rewritten_q, rationale = await rewrite_query_with_context(current_query, history, eval_llm)
+        if rewritten_q and rewritten_q.strip():
+            logs.append(
+                f"[Agent LLM Rewriter] Reformulated query using chat history: '{current_query}' -> '{rewritten_q}' ({rationale})."
+            )
+            current_query = rewritten_q
 
     ai_msg = None
-    # On first retrieval pass, dispatch tools automatically
+    # On first retrieval pass, dispatch tools automatically with the contextualized query
     if retrieval_attempts == 0:
         tool_calls = []
         if retriever is not None:
@@ -45,6 +55,7 @@ async def agent_node(state: GraphState, agent_llm, retriever) -> dict:
     tool_call_names = [tc.get("name") for tc in getattr(ai_msg, "tool_calls", [])]
     logs.append(f"[Agent Node] Evaluated state. Tool calls: {tool_call_names}")
     return {
+        "current_query": current_query,
         "messages": [ai_msg],
         "reflection_logs": logs
     }

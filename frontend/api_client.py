@@ -2,12 +2,11 @@ import os
 import json
 import hashlib
 import logging
-from typing import Generator, Dict, Any, List, Optional, Tuple
+from typing import Generator, Dict, Any, Optional, Tuple
+
 import requests
 
 logger = logging.getLogger(__name__)
-
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
 
 def get_backend_url() -> str:
     """Return normalized backend URL from environment or default."""
@@ -59,6 +58,7 @@ def upload_documents(uploaded_files: list, base_url: Optional[str] = None) -> di
 def stream_chat(
     query: str,
     session_id: str = "default_session",
+    username: str = "default_user",
     base_url: Optional[str] = None
 ) -> Generator[Dict[str, Any], None, None]:
     """
@@ -69,7 +69,7 @@ def stream_chat(
       - {"type": "final", "answer": "...", "sources": [...], "claim_analysis": {...}, "metadata": {...}}
     """
     url = (base_url or get_backend_url()).rstrip("/")
-    payload = {"query": query, "session_id": session_id}
+    payload = {"query": query, "session_id": session_id, "username": username}
 
     try:
         with requests.post(
@@ -103,6 +103,47 @@ def stream_chat(
             "error": error_detail or f"Failed to communicate with FastAPI backend at {url}: {e}"
         }
 
+def fetch_user_sessions(username: str, base_url: Optional[str] = None) -> Dict[str, Any]:
+    """Fetch stored conversation sessions for a given user from FastAPI backend / Upstash Redis."""
+    url = (base_url or get_backend_url()).rstrip("/")
+    try:
+        resp = requests.get(f"{url}/user/{username}/sessions", timeout=5.0)
+        if resp.status_code == 200:
+            return resp.json().get("sessions", {})
+    except Exception as e:
+        logger.debug(f"Failed to fetch sessions for user {username}: {e}")
+    return {}
+
+def save_user_sessions_to_backend(username: str, sessions: Dict[str, Any], base_url: Optional[str] = None) -> bool:
+    """Save conversation sessions dictionary for a user to FastAPI backend / Upstash Redis."""
+    url = (base_url or get_backend_url()).rstrip("/")
+    try:
+        resp = requests.post(f"{url}/user/{username}/sessions", json={"sessions": sessions}, timeout=5.0)
+        return resp.status_code == 200
+    except Exception as e:
+        logger.debug(f"Failed to save sessions for user {username}: {e}")
+        return False
+
+def delete_session_from_backend(username: str, session_id: str, base_url: Optional[str] = None) -> bool:
+    """Delete a single session and its checkpointer memory from backend / Upstash Redis."""
+    url = (base_url or get_backend_url()).rstrip("/")
+    try:
+        resp = requests.delete(f"{url}/user/{username}/session/{session_id}", timeout=5.0)
+        return resp.status_code == 200
+    except Exception as e:
+        logger.debug(f"Failed to delete session {session_id} for user {username}: {e}")
+        return False
+
+def clear_user_history_on_backend(username: str, base_url: Optional[str] = None) -> bool:
+    """Clear all conversation sessions and checkpointer memory for a user on backend / Upstash Redis."""
+    url = (base_url or get_backend_url()).rstrip("/")
+    try:
+        resp = requests.post(f"{url}/user/{username}/clear", timeout=5.0)
+        return resp.status_code == 200
+    except Exception as e:
+        logger.debug(f"Failed to clear all sessions for user {username}: {e}")
+        return False
+
 def clear_session_memory(session_id: str, base_url: Optional[str] = None) -> bool:
     """Clear conversational memory checkpointer on the FastAPI backend."""
     url = (base_url or get_backend_url()).rstrip("/")
@@ -112,6 +153,7 @@ def clear_session_memory(session_id: str, base_url: Optional[str] = None) -> boo
     except Exception as e:
         logger.warning(f"Failed to clear backend memory for {session_id}: {e}")
         return False
+
 
 def compute_files_hash(files: list) -> str:
     """Compute an MD5 hash of uploaded files to detect changes."""

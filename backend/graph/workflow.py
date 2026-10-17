@@ -56,7 +56,7 @@ def build_graph(
         return await router_node(state, eval_llm)
 
     async def _agent(state: GraphState) -> dict:
-        return await agent_node(state, agent_llm, retriever)
+        return await agent_node(state, agent_llm, retriever, eval_llm=eval_llm)
 
     async def _tools(state: GraphState) -> dict:
         return await execute_tools_node(state, retriever)

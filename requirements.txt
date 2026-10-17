@@ -22,7 +22,10 @@ langchain-text-splitters==1.1.2
 # LangGraph
 langgraph==1.2.2
 langgraph-checkpoint==4.1.1
-langgraph-checkpoint-sqlite==3.1.0
+upstash-redis>=1.1.0
+langgraph-checkpoint-upstash-redis>=0.1.0
+
+
 
 # Retrieval & Embeddings
 chromadb==1.5.9

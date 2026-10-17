@@ -43,8 +43,8 @@ def _clean_env(val: str | None) -> str:
 # --- Ollama Cloud Configuration (Multi-Key Fallback) ---
 OLLAMA_KEY_NAMES = [
     "OLLAMA_API_KEY_ONE", "OLLAMA_API_KEY_1",
-    "OLLAMA_API_KEY_TWO", "OLLAMA_API_KEY_2",
-    "OLLAMA_API_KEY_THREE", "OLLAMA_API_KEY_3",
+    "OLLAMA_API_KEY_TWO", "OLLAMA_API_KEY_2", "OLLAMA_API_KEY_SECOND",
+    "OLLAMA_API_KEY_THREE", "OLLAMA_API_KEY_3", "OLLAMA_API_KEY_THIRD",
     "OLLAMA_API_KEY"
 ]
 OLLAMA_API_KEYS = list(dict.fromkeys(
@@ -54,6 +54,7 @@ OLLAMA_API_KEY = OLLAMA_API_KEYS[0] if OLLAMA_API_KEYS else ""
 
 OLLAMA_HOST = _clean_env(os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_BASE_URL") or "https://ollama.com")
 DEFAULT_LLM_MODEL = _clean_env(os.getenv("OLLAMA_MODEL")) or "gpt-oss:120b"
+OLLAMA_NUM_CTX = int(_clean_env(os.getenv("OLLAMA_NUM_CTX")) or "131072")
 
 # --- Embeddings & Search ---
 GOOGLE_API_KEY = _clean_env(os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
@@ -70,13 +71,18 @@ EMBEDDING_DIMENSION = int(_clean_env(os.getenv("EMBEDDING_DIMENSION")) or "768")
 # --- Retrieval & Memory Settings ---
 MAX_RETRIEVAL_ATTEMPTS = 3
 MAX_QUERY_REWRITES = 1
-RETRIEVER_K = 5
+RETRIEVER_K = int(_clean_env(os.getenv("RETRIEVER_K")) or "6")
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
-MAX_CHAT_HISTORY_MESSAGES = 10
+MAX_CHAT_HISTORY_MESSAGES = int(_clean_env(os.getenv("MAX_CHAT_HISTORY_MESSAGES")) or "20")
+
+# --- Upstash Redis Checkpointer Settings ---
+UPSTASH_REDIS_REST_URL = _clean_env(os.getenv("UPSTASH_REDIS_REST_URL"))
+UPSTASH_REDIS_REST_TOKEN = _clean_env(os.getenv("UPSTASH_REDIS_REST_TOKEN"))
+
 
 def _create_ollama_client(model_name: str, api_key: str, temperature: float, key_idx: int, total_keys: int):
-    """Instantiate a ChatOllama instance with Authorization header and failure logging."""
+    """Instantiate a ChatOllama instance with Authorization header, context window, and failure logging."""
     from langchain_ollama import ChatOllama
     client_kwargs = (
         {"headers": {"Authorization": f"Bearer {api_key}"}}
@@ -87,6 +93,7 @@ def _create_ollama_client(model_name: str, api_key: str, temperature: float, key
         model=model_name,
         base_url=OLLAMA_HOST,
         temperature=temperature,
+        num_ctx=OLLAMA_NUM_CTX,
         client_kwargs=client_kwargs,
     )
 

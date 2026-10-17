@@ -1,6 +1,7 @@
 import asyncio
 import logging
-import re
+from langchain_core.output_parsers import StrOutputParser
+
 from backend.schemas.state import GraphState
 from backend.schemas.claim import ClaimAnalysisResult
 from backend.prompts.claim import claim_analysis_prompt
@@ -51,7 +52,6 @@ async def claim_analysis_node(state: GraphState, eval_llm) -> dict:
             })
             analysis_dict = res.model_dump() if hasattr(res, "model_dump") else res.dict()
         except Exception:
-            from langchain_core.output_parsers import StrOutputParser
             str_chain = claim_analysis_prompt | eval_llm | StrOutputParser()
             raw_text = await str_chain.ainvoke({
                 "claim": claim_text,

@@ -113,7 +113,7 @@ jobs:
       - name: Run Core Module Smoke Test
         run: |
           python -c "
-          from backend.service import AgentService
+          from backend.services import AgentService
           from backend.schemas.state import GraphState
           from backend.utils.helpers import extract_sources_metadata
           service = AgentService()

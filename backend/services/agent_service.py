@@ -1,13 +1,17 @@
+import logging
 import asyncio
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.retrievers import BaseRetriever
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.base import BaseCheckpointSaver
 
+from backend.database import get_checkpointer
 from backend.graph.workflow import build_graph
 from backend.utils.helpers import run_async_safe, extract_sources_metadata
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class QueryResult:
@@ -19,12 +23,25 @@ class QueryResult:
     claim_analysis: Optional[Dict[str, Any]] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+_service: Optional["AgentService"] = None
+
+def get_agent_service() -> "AgentService":
+    """Lazy initialize AgentService singleton."""
+    global _service
+    if _service is None:
+        _service = AgentService()
+    return _service
+
 class AgentService:
     """Core business service managing LangGraph execution and conversational checkpointer."""
 
-    def __init__(self, retriever: Optional[BaseRetriever] = None):
+    def __init__(
+        self,
+        retriever: Optional[BaseRetriever] = None,
+        checkpointer: Optional[BaseCheckpointSaver] = None
+    ):
         self.retriever = retriever
-        self.checkpointer = MemorySaver()
+        self.checkpointer = checkpointer or get_checkpointer()
         self.graph = None
         self._compile()
 
@@ -40,9 +57,37 @@ class AgentService:
         self.retriever = retriever
         self._compile()
 
-    def clear_memory(self):
-        """Reset conversation memory checkpointer."""
-        self.checkpointer = MemorySaver()
+    def clear_memory(self, session_id: Optional[str] = None):
+        """Reset conversation memory checkpointer for a specific session or globally."""
+        if session_id and hasattr(self.checkpointer, "delete_thread"):
+            try:
+                self.checkpointer.delete_thread(session_id)
+                logger.info("Cleared conversation memory for session '%s' in checkpointer.", session_id)
+                return
+            except Exception as e:
+                logger.warning("Failed to delete thread '%s' from checkpointer: %s", session_id, e)
+
+        self.checkpointer = get_checkpointer()
+        self._compile()
+
+    async def aclear_memory(self, session_id: Optional[str] = None):
+        """Reset conversation memory checkpointer asynchronously without blocking."""
+        if session_id and hasattr(self.checkpointer, "adelete_thread"):
+            try:
+                await self.checkpointer.adelete_thread(session_id)
+                logger.info("Cleared async conversation memory for session '%s' in checkpointer.", session_id)
+                return
+            except Exception as e:
+                logger.warning("Failed to async delete thread '%s' from checkpointer: %s", session_id, e)
+        elif session_id and hasattr(self.checkpointer, "delete_thread"):
+            try:
+                await asyncio.to_thread(self.checkpointer.delete_thread, session_id)
+                logger.info("Cleared conversation memory for session '%s' in checkpointer via thread.", session_id)
+                return
+            except Exception as e:
+                logger.warning("Failed to delete thread '%s' from checkpointer: %s", session_id, e)
+
+        self.checkpointer = get_checkpointer()
         self._compile()
 
     def _build_initial_state(self, user_query: str) -> dict:

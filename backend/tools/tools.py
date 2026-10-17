@@ -78,10 +78,15 @@ async def execute_retriever(retriever, query: str) -> List[Document]:
     if retriever is None:
         return []
     try:
-        return await retriever.ainvoke(query)
+        if hasattr(retriever, "ainvoke"):
+            return await retriever.ainvoke(query)
+        return await asyncio.to_thread(retriever.invoke, query)
     except Exception as e:
         logger.error(f"Retriever invocation failed: {e}")
-        return []
+        try:
+            return await asyncio.to_thread(retriever.invoke, query)
+        except Exception:
+            return []
 
 @tool
 def retrieve_from_vectorstore(query: str) -> str:
