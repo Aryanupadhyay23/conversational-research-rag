@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import sys
 import datetime
+import uuid
 
 # Ensure project root is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -39,25 +40,24 @@ st.set_page_config(
 inject_custom_theme()
 
 # Initialize User & Multi-Session Conversation History
+# Generate unique guest identity per visitor so new arrivals always get a fresh conversation
 if "username" not in st.session_state:
-    st.session_state.username = "default_user"
+    st.session_state.username = f"guest_{uuid.uuid4().hex[:6]}"
 
 if "sessions" not in st.session_state:
+    init_id = f"session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}"
+    fresh_session = {
+        "title": "New Research Chat",
+        "messages": [],
+        "created_at": datetime.datetime.now().strftime("%b %d, %H:%M")
+    }
     loaded = fetch_user_sessions(st.session_state.username)
     if loaded:
         st.session_state.sessions = loaded
-        st.session_state.current_session_id = list(loaded.keys())[0]
+        st.session_state.sessions[init_id] = fresh_session
     else:
-        init_id = f"session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        st.session_state.sessions = {
-            init_id: {
-                "title": "New Research Chat",
-                "messages": [],
-                "created_at": datetime.datetime.now().strftime("%b %d, %H:%M")
-            }
-        }
-        st.session_state.current_session_id = init_id
-        save_user_sessions_to_backend(st.session_state.username, st.session_state.sessions)
+        st.session_state.sessions = {init_id: fresh_session}
+    st.session_state.current_session_id = init_id
 
 if "uploaded_hash" not in st.session_state:
     st.session_state.uploaded_hash = None

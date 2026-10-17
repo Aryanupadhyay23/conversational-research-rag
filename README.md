@@ -4,6 +4,13 @@ An enterprise-grade, conversational research assistant designed for deep academi
 
 ---
 
+> 🌐 **Live Demo & Deployment:**
+> - **Streamlit Web Application:** [http://aryan-projects.duckdns.org:8502/](http://aryan-projects.duckdns.org:8502/)
+> - **FastAPI Backend & Swagger Docs:** [http://aryan-projects.duckdns.org:8001/docs](http://aryan-projects.duckdns.org:8001/docs)
+> - ⏰ **Availability:** The live link is active **Monday to Friday, 9:00 AM – 5:00 PM**.
+
+---
+
 ## Key Highlights & Core Capabilities
 
 * **Decoupled Architecture with Full Asynchronous Backend:**
@@ -308,13 +315,13 @@ The streaming endpoint delivers live Server-Sent Events with standard JSON paylo
 
 ## Port Mappings & Network Architecture
 
-| Service | Local Dev Port | Container Port | AWS EC2 Host Port |
-| :--- | :--- | :--- | :--- |
-| **FastAPI Backend & API Docs** | `8000` | `8000` | `8001` (`8001:8000`) |
-| **Streamlit User Interface** | `8501` | `7860` | `8502` (`8502:7860`) |
+| Service | Local Dev Port | Container Port | AWS EC2 Host Port | Live Domain Mapping |
+| :--- | :--- | :--- | :--- | :--- |
+| **FastAPI Backend & API Docs** | `8000` | `8000` | `8001` (`8001:8000`) | [http://aryan-projects.duckdns.org:8001/docs](http://aryan-projects.duckdns.org:8001/docs) |
+| **Streamlit User Interface** | `8501` | `7860` | `8502` (`8502:7860`) | [http://aryan-projects.duckdns.org:8502/](http://aryan-projects.duckdns.org:8502/) |
 
 > [!NOTE]
-> All port numbers are strictly preserved across local runs, Docker containerization, and AWS EC2 deployments to prevent breaking upstream proxies or reverse routing.
+> The live deployment link is active **Monday to Friday, 9:00 AM – 5:00 PM**. All port numbers are strictly preserved across local runs, Docker containerization, and AWS EC2 deployments to prevent breaking upstream proxies or reverse routing.
 
 ---
 
@@ -426,9 +433,9 @@ The application is deployed to **Amazon EC2** using GitHub Actions, Amazon ECR, 
    - Packages [`appspec.yml`](appspec.yml) and deployment scripts (`deploy/scripts/`) into an S3 bundle.
    - Triggers **AWS CodeDeploy** to perform a zero-downtime rolling update on your EC2 instance.
 
-2. **EC2 Host Port Mappings:**
-   - **Streamlit Interface:** `http://<EC2-HOST-IP>:8502` (mapped to container port `7860`).
-   - **FastAPI Backend:** `http://<EC2-HOST-IP>:8001` (mapped to container port `8000`).
+2. **EC2 Host & Live Domain Mappings (Active Mon–Fri, 9:00 AM – 5:00 PM):**
+   - **Streamlit Interface:** [http://aryan-projects.duckdns.org:8502/](http://aryan-projects.duckdns.org:8502/) (or `http://<EC2-HOST-IP>:8502` mapped to container port `7860`).
+   - **FastAPI Backend:** [http://aryan-projects.duckdns.org:8001/docs](http://aryan-projects.duckdns.org:8001/docs) (or `http://<EC2-HOST-IP>:8001` mapped to container port `8000`).
    - Managed automatically via [`deploy/scripts/start_docker.sh`](deploy/scripts/start_docker.sh) with automatic restart policies.
 
 ---
