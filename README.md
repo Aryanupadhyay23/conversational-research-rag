@@ -5,8 +5,8 @@ An enterprise-grade, conversational research assistant designed for deep academi
 ---
 
 > 🌐 **Live Demo & Deployment:**
-> - **Streamlit Web Application:** [http://aryan-projects.duckdns.org:8502/](http://aryan-projects.duckdns.org:8502/)
-> - **FastAPI Backend & Swagger Docs:** [http://aryan-projects.duckdns.org:8001/docs](http://aryan-projects.duckdns.org:8001/docs)
+> - **Streamlit Web Application:** [https://aryan-projects.duckdns.org/research-rag](https://aryan-projects.duckdns.org/research-rag)
+> - **FastAPI Backend Swagger UI:** [http://aryan-projects.duckdns.org/research-rag-backend/docs](http://aryan-projects.duckdns.org/research-rag-backend/docs) (API Root: [http://aryan-projects.duckdns.org/research-rag-backend](http://aryan-projects.duckdns.org/research-rag-backend))
 > - ⏰ **Availability:** The live link is active **Monday to Friday, 9:00 AM – 5:00 PM**.
 
 ---
@@ -279,9 +279,12 @@ conversational-research-rag/
 ├── app.py                                # Root runner: streamlit run app.py
 ├── api.py                                # Root runner: fastapi dev api.py / uvicorn api:app
 ├── entrypoint.sh                         # Multi-process container launcher
+├── appspec.yml                           # AWS CodeDeploy deployment specification
 ├── requirements.txt                      # Project dependencies
 ├── .env / .env.rag                       # Environment variables
-├── Dockerfile                            # Docker multi-service container build
+├── .dockerignore                         # Container build exclusion rules
+├── Dockerfile                            # Docker multi-stage container build
+├── LICENSE                               # MIT License
 └── README.md                             # Documentation & Architecture
 ```
 
@@ -315,13 +318,13 @@ The streaming endpoint delivers live Server-Sent Events with standard JSON paylo
 
 ## Port Mappings & Network Architecture
 
-| Service | Local Dev Port | Container Port | AWS EC2 Host Port | Live Domain Mapping |
+| Service | Local Dev Port | Container Port | AWS EC2 Host Port | Reverse Proxy Path / Live URL |
 | :--- | :--- | :--- | :--- | :--- |
-| **FastAPI Backend & API Docs** | `8000` | `8000` | `8001` (`8001:8000`) | [http://aryan-projects.duckdns.org:8001/docs](http://aryan-projects.duckdns.org:8001/docs) |
-| **Streamlit User Interface** | `8501` | `7860` | `8502` (`8502:7860`) | [http://aryan-projects.duckdns.org:8502/](http://aryan-projects.duckdns.org:8502/) |
+| **FastAPI Backend & Swagger Docs** | `8000` | `8000` | `8001` (`8001:8000`) | [http://aryan-projects.duckdns.org/research-rag-backend/docs](http://aryan-projects.duckdns.org/research-rag-backend/docs) (Root: `/research-rag-backend`) |
+| **Streamlit Web Application** | `8501` | `7860` | `8502` (`8502:7860`) | [https://aryan-projects.duckdns.org/research-rag](https://aryan-projects.duckdns.org/research-rag) (Base URL: `/research-rag`) |
 
 > [!NOTE]
-> The live deployment link is active **Monday to Friday, 9:00 AM – 5:00 PM**. All port numbers are strictly preserved across local runs, Docker containerization, and AWS EC2 deployments to prevent breaking upstream proxies or reverse routing.
+> The live deployment link is active **Monday to Friday, 9:00 AM – 5:00 PM**. All port numbers and subpath routes (`--root-path /research-rag-backend` and `--server.baseUrlPath=research-rag`) are strictly aligned across local development, Docker containerization, and reverse proxy routing on AWS EC2.
 
 ---
 
@@ -434,8 +437,8 @@ The application is deployed to **Amazon EC2** using GitHub Actions, Amazon ECR, 
    - Triggers **AWS CodeDeploy** to perform a zero-downtime rolling update on your EC2 instance.
 
 2. **EC2 Host & Live Domain Mappings (Active Mon–Fri, 9:00 AM – 5:00 PM):**
-   - **Streamlit Interface:** [http://aryan-projects.duckdns.org:8502/](http://aryan-projects.duckdns.org:8502/) (or `http://<EC2-HOST-IP>:8502` mapped to container port `7860`).
-   - **FastAPI Backend:** [http://aryan-projects.duckdns.org:8001/docs](http://aryan-projects.duckdns.org:8001/docs) (or `http://<EC2-HOST-IP>:8001` mapped to container port `8000`).
+   - **Streamlit Web Application:** [https://aryan-projects.duckdns.org/research-rag](https://aryan-projects.duckdns.org/research-rag) (or `http://<EC2-HOST-IP>:8502/research-rag` mapped to container port `7860` via `--server.baseUrlPath=research-rag`).
+   - **FastAPI Backend & Swagger Docs:** [http://aryan-projects.duckdns.org/research-rag-backend/docs](http://aryan-projects.duckdns.org/research-rag-backend/docs) (or `http://<EC2-HOST-IP>:8001/research-rag-backend/docs` mapped to container port `8000` via `--root-path /research-rag-backend`).
    - Managed automatically via [`deploy/scripts/start_docker.sh`](deploy/scripts/start_docker.sh) with automatic restart policies.
 
 ---
