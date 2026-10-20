@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from frontend.api_client import (
     check_backend_health,
     upload_documents,
+    upload_documents_stream,
     stream_chat,
     compute_files_hash,
     fetch_user_sessions,
@@ -107,14 +108,87 @@ with st.container():
             if not is_backend_online:
                 st.error("Cannot upload documents: FastAPI backend is unreachable. Start the backend first.")
             else:
-                with st.spinner("Uploading to FastAPI backend & indexing (Layout & Table Extraction)..."):
-                    try:
-                        resp = upload_documents(uploaded_files)
-                        chunks_indexed = resp.get("chunks_indexed", 0)
-                        st.session_state.uploaded_hash = current_hash
-                        st.toast(f"Successfully indexed {len(uploaded_files)} paper(s) ({chunks_indexed} chunks) via backend.", icon="📄")
-                    except Exception as ingest_err:
-                        st.error(f"Unable to process uploaded PDFs via backend: {ingest_err}")
+                progress_container = st.empty()
+                indexing_successful = False
+                completed_chunks = 0
+                completed_requests_cnt = 0
+                total_requests_cnt = 0
+
+                try:
+                    for event in upload_documents_stream(uploaded_files):
+                        ev_type = event.get("type")
+
+                        if ev_type == "progress":
+                            stage = event.get("stage", "parsing")
+                            pct = float(event.get("percent", 0.0)) / 100.0
+                            pct_clamped = min(1.0, max(0.0, pct))
+
+                            with progress_container.container():
+                                if stage == "parsing":
+                                    st.markdown("### ⚡ **Generating embeddings…**")
+                                    st.progress(pct_clamped)
+                                    col1, col2 = st.columns(2)
+                                    col1.markdown("**Progress:** Calculating estimated time…")
+                                    col2.markdown("**Estimated time remaining:** Calculating…")
+                                    st.caption(
+                                        "ℹ️ *Extracting text & layout from research papers. Request counts and dynamic estimates will appear once chunking completes.*"
+                                    )
+                                else:
+                                    completed = event.get("completed_requests", 0)
+                                    total_reqs = event.get("total_requests", 1)
+                                    est_rem = event.get("estimated_remaining_seconds", 0.0)
+                                    elapsed = event.get("elapsed_seconds", 0.0)
+                                    rate = event.get("rate_seconds_per_req", 1.07)
+                                    chunks = event.get("total_chunks", 0)
+                                    chunk_size = event.get("chunk_size", 10)
+
+                                    completed_requests_cnt = completed
+                                    total_requests_cnt = total_reqs
+
+                                    st.markdown("### ⚡ **Generating embeddings…**")
+                                    st.progress(pct_clamped)
+                                    col1, col2, col3 = st.columns(3)
+                                    col1.metric(
+                                        label="Embedding Requests",
+                                        value=f"{completed} of {total_reqs} completed",
+                                        delta=f"{pct * 100:.0f}%"
+                                    )
+                                    col2.metric(
+                                        label="Estimated time remaining",
+                                        value=f"~{est_rem:.1f}s" if est_rem > 0 else "Finishing...",
+                                        delta=f"Elapsed: {elapsed:.1f}s" if elapsed > 0 else f"~{rate:.2f}s/req"
+                                    )
+                                    col3.metric(
+                                        label="Document Chunks",
+                                        value=f"{chunks} chunks",
+                                        delta=f"{chunk_size} chunks/req"
+                                    )
+                                    st.caption(
+                                        "ℹ️ **Note:** *Completion time is an estimate based on tested Nomic Embed Text v1.5 API latency (~1.07s/request baseline at ~0.93 req/s). "
+                                        "Network delays, document length, server load, retries, and concurrent users can affect actual duration.*"
+                                    )
+
+                        elif ev_type == "completed":
+                            indexing_successful = True
+                            completed_chunks = event.get("chunks_indexed", 0)
+                            st.session_state.uploaded_hash = current_hash
+                            with progress_container.container():
+                                st.progress(1.0)
+                                st.success(
+                                    f"✅ **Indexing complete!** Successfully generated embeddings and indexed {completed_chunks} chunks "
+                                    f"({total_requests_cnt or completed_requests_cnt} requests) using Nomic Embed Text v1.5."
+                                )
+                                st.toast(f"Indexed {len(uploaded_files)} paper(s) ({completed_chunks} chunks)", icon="📄")
+
+                        elif ev_type == "error":
+                            err_msg = event.get("error", "Unknown ingestion error")
+                            with progress_container.container():
+                                st.error(f"❌ **Embedding Error:** {err_msg}")
+                            break
+
+                except Exception as ingest_err:
+                    with progress_container.container():
+                        st.error(f"❌ **Unable to process uploaded PDFs:** {ingest_err}")
 
         render_document_management_card(uploaded_files, is_indexed=True)
 
@@ -156,6 +230,16 @@ if query_to_run:
                 "answer": ""
             }
 
+            status_placeholder = st.empty()
+            with status_placeholder.container():
+                st.markdown(
+                    "⚡ **Generating embeddings…**\n\n"
+                    "• **Progress:** 0 of 1 embedding request completed\n"
+                    "• **Estimated time remaining:** ~1.1 seconds\n\n"
+                    "<span style='font-size: 11px; color: #a1a1aa;'>*Estimate based on tested Nomic Embed Text v1.5 baseline (~1.07s/req). Network delays and server load can affect actual duration.*</span>",
+                    unsafe_allow_html=True
+                )
+
             def stream_tokens():
                 for event in stream_chat(
                     query_to_run,
@@ -163,15 +247,34 @@ if query_to_run:
                     username=st.session_state.username
                 ):
                     ev_type = event.get("type")
-                    if ev_type == "token":
+                    if ev_type == "status":
+                        node = event.get("node")
+                        if node == "retrieve":
+                            with status_placeholder.container():
+                                st.markdown(
+                                    "⚡ **Progress:** 1 of 1 embedding request completed • *Searching vector index...*"
+                                )
+                        elif node == "grade_documents":
+                            with status_placeholder.container():
+                                st.markdown("🔍 *Evaluating retrieved paper passages for relevance...*")
+                        elif node == "generate_answer":
+                            with status_placeholder.container():
+                                st.markdown("✍️ *Synthesizing verified response with academic citations...*")
+                        elif node == "web_search":
+                            with status_placeholder.container():
+                                st.markdown("🌐 *Augmenting with real-time academic web search...*")
+                    elif ev_type == "token":
+                        status_placeholder.empty()
                         yield event.get("content", "")
                     elif ev_type == "final":
+                        status_placeholder.empty()
                         meta["sources"] = event.get("sources")
                         meta["claim_analysis"] = event.get("claim_analysis")
                         metadata_dict = event.get("metadata", {})
                         meta["groundedness"] = metadata_dict.get("groundedness")
                         meta["answer"] = event.get("answer", "")
                     elif ev_type == "error":
+                        status_placeholder.empty()
                         st.error(f"Backend Streaming Error: {event.get('error')}")
 
             response_placeholder = st.empty()

@@ -42,7 +42,7 @@ def upload_documents(uploaded_files: list, base_url: Optional[str] = None) -> di
         resp = requests.post(
             f"{url}/upload",
             files=files,
-            timeout=180.0
+            timeout=300.0
         )
         resp.raise_for_status()
         return resp.json()
@@ -54,6 +54,52 @@ def upload_documents(uploaded_files: list, base_url: Optional[str] = None) -> di
             except Exception:
                 error_detail = e.response.text
         raise RuntimeError(error_detail or str(e))
+
+def upload_documents_stream(
+    uploaded_files: list,
+    base_url: Optional[str] = None
+) -> Generator[Dict[str, Any], None, None]:
+    """
+    Upload PDF files to FastAPI /upload/stream endpoint and stream live embedding progress,
+    remaining-time estimates, and request counters via Server-Sent Events (SSE).
+    """
+    url = (base_url or get_backend_url()).rstrip("/")
+    files = []
+    for f in uploaded_files:
+        content = f.getvalue() if hasattr(f, "getvalue") else f.read()
+        files.append(("files", (f.name, content, "application/pdf")))
+
+    try:
+        with requests.post(
+            f"{url}/upload/stream",
+            files=files,
+            stream=True,
+            timeout=300.0
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                if line.startswith("data: "):
+                    data_str = line[6:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        event = json.loads(data_str)
+                        yield event
+                    except json.JSONDecodeError:
+                        continue
+    except requests.exceptions.RequestException as e:
+        error_detail = ""
+        if hasattr(e, "response") and e.response is not None:
+            try:
+                error_detail = e.response.json().get("detail", "")
+            except Exception:
+                error_detail = e.response.text
+        yield {
+            "type": "error",
+            "error": error_detail or f"Failed to upload documents via stream to {url}: {e}"
+        }
 
 def stream_chat(
     query: str,

@@ -1,12 +1,15 @@
 import asyncio
-from typing import Sequence, Tuple
+from typing import Sequence, Tuple, Optional, Callable
 from langchain_core.retrievers import BaseRetriever
 
 from backend.ingestion.loader import load_uploaded_pdfs
 from backend.ingestion.splitter import split_documents
 from backend.ingestion.retriever import build_hybrid_retriever
 
-def ingest_documents(uploaded_files: Sequence) -> Tuple[BaseRetriever, int]:
+def ingest_documents(
+    uploaded_files: Sequence,
+    progress_callback: Optional[Callable[[dict], None]] = None
+) -> Tuple[BaseRetriever, int]:
     """Ingest PDF documents synchronously and return hybrid retriever and chunk count."""
     raw_docs = load_uploaded_pdfs(uploaded_files)
     if not raw_docs:
@@ -16,9 +19,12 @@ def ingest_documents(uploaded_files: Sequence) -> Tuple[BaseRetriever, int]:
     if not splits:
         raise ValueError("Could not create text splits from uploaded PDFs.")
 
-    retriever = build_hybrid_retriever(splits)
+    retriever = build_hybrid_retriever(splits, progress_callback=progress_callback)
     return retriever, len(splits)
 
-async def ingest_documents_async(uploaded_files: Sequence) -> Tuple[BaseRetriever, int]:
+async def ingest_documents_async(
+    uploaded_files: Sequence,
+    progress_callback: Optional[Callable[[dict], None]] = None
+) -> Tuple[BaseRetriever, int]:
     """Ingest PDF documents asynchronously using non-blocking thread execution."""
-    return await asyncio.to_thread(ingest_documents, uploaded_files)
+    return await asyncio.to_thread(ingest_documents, uploaded_files, progress_callback)

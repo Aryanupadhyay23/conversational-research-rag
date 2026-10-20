@@ -14,3 +14,11 @@ def render_document_management_card(uploaded_files, is_indexed: bool):
             f'<span class="doc-pill doc-pill-ready">📄 {f.name} ({size_str}) • Ready</span>'
         )
     st.markdown("".join(pills_html), unsafe_allow_html=True)
+    st.markdown(
+        "<div style='margin-top: 8px; font-size: 11.5px; color: #a1a1aa;'>"
+        "⚡ <strong>Embedding Model:</strong> <code>nomic-embed-text-v1.5</code> (768-dim) • "
+        "<strong>Tested Baseline:</strong> ~1.07s/req (~0.93 req/s) • "
+        "<strong>Batching:</strong> 10 chunks/request"
+        "</div>",
+        unsafe_allow_html=True
+    )

@@ -57,23 +57,27 @@ DEFAULT_LLM_MODEL = _clean_env(os.getenv("OLLAMA_MODEL")) or "gpt-oss:120b"
 OLLAMA_NUM_CTX = int(_clean_env(os.getenv("OLLAMA_NUM_CTX")) or "131072")
 
 # --- Embeddings & Search ---
-GOOGLE_API_KEY = _clean_env(os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
+EMBEDDING_MODEL_KEY = _clean_env(os.getenv("EMBEDDING_MODEL_KEY"))
+EMBEDDING_BASE_URL = _clean_env(os.getenv("EMBEDDING_BASE_URL")) or "https://nomicapi.duckdns.org/v1"
+EMBEDDING_MODEL_NAME = _clean_env(os.getenv("EMBEDDING_MODEL_NAME")) or "nomic-embed-text-v1.5"
+EMBEDDING_DIMENSION = int(_clean_env(os.getenv("EMBEDDING_DIMENSION")) or "768")
+EMBEDDING_CHUNK_SIZE = int(_clean_env(os.getenv("EMBEDDING_CHUNK_SIZE")) or "10")
+EMBEDDING_TIMEOUT = float(_clean_env(os.getenv("EMBEDDING_TIMEOUT")) or "60.0")
+EMBEDDING_MAX_WORKERS = int(_clean_env(os.getenv("EMBEDDING_MAX_WORKERS")) or "1")
+BASELINE_EMBEDDING_LATENCY = float(_clean_env(os.getenv("BASELINE_EMBEDDING_LATENCY")) or "1.07")
+BASELINE_EMBEDDING_THROUGHPUT = float(_clean_env(os.getenv("BASELINE_EMBEDDING_THROUGHPUT")) or "0.93")
+
 TAVILY_API_KEY = _clean_env(os.getenv("TAVILY_API_KEY"))
 
-if GOOGLE_API_KEY:
-    os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
 if TAVILY_API_KEY:
     os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
-
-GEMINI_EMBEDDING_MODEL = _clean_env(os.getenv("GEMINI_EMBEDDING_MODEL")) or "gemini-embedding-2"
-EMBEDDING_DIMENSION = int(_clean_env(os.getenv("EMBEDDING_DIMENSION")) or "768")
 
 # --- Retrieval & Memory Settings ---
 MAX_RETRIEVAL_ATTEMPTS = 3
 MAX_QUERY_REWRITES = 1
 RETRIEVER_K = int(_clean_env(os.getenv("RETRIEVER_K")) or "6")
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
+CHUNK_SIZE = int(_clean_env(os.getenv("CHUNK_SIZE")) or "500")
+CHUNK_OVERLAP = int(_clean_env(os.getenv("CHUNK_OVERLAP")) or "100")
 MAX_CHAT_HISTORY_MESSAGES = int(_clean_env(os.getenv("MAX_CHAT_HISTORY_MESSAGES")) or "20")
 
 # --- Upstash Redis Checkpointer Settings ---
@@ -132,15 +136,9 @@ def get_eval_llm() -> BaseChatModel:
     return get_llm(temperature=0.0)
 
 def get_embeddings():
-    """Return native Google Gemini Embeddings."""
-    from langchain_google_genai import GoogleGenerativeAIEmbeddings
-    api_key = GOOGLE_API_KEY or _clean_env(os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
+    """Return standard LangChain OpenAIEmbeddings directly."""
+    from backend.ingestion.embeddings import get_nomic_embeddings
+    api_key = EMBEDDING_MODEL_KEY or _clean_env(os.getenv("EMBEDDING_MODEL_KEY"))
     if not api_key:
-        raise ValueError(
-            "Google Gemini API key is missing. Please set GOOGLE_API_KEY or GEMINI_API_KEY in your .env.rag file."
-        )
-    return GoogleGenerativeAIEmbeddings(
-        model=GEMINI_EMBEDDING_MODEL,
-        google_api_key=api_key,
-        output_dimensionality=EMBEDDING_DIMENSION
-    )
+        raise ValueError("EMBEDDING_MODEL_KEY is missing in your .env.rag file.")
+    return get_nomic_embeddings(api_key=api_key)

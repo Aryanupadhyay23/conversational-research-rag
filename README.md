@@ -44,9 +44,14 @@ An enterprise-grade, conversational research assistant designed for deep academi
 * **Ollama Cloud Multi-Key Resilience:**
   - High-performance reasoning powered by `gpt-oss:120b` via Ollama Cloud.
   - Automated zero-downtime key rotation that seamlessly falls back across secondary and tertiary API keys on rate limits or service interruptions.
+* **Nomic Embed Text v1.5 & Dynamic Progress Estimation:**
+  - High-dimensional dense vectors (768 dimensions) via OpenAI-compatible endpoint.
+  - Asymmetric task prefixes (`search_query: ` for queries, `search_document: ` for documents) to optimize semantic search.
+  - Server-Sent Events (SSE) streaming progress bar with real-time remaining-time calculations based on tested API latency (~1.07s/request baseline at ~0.93 req/s throughput).
 * **Multi-Tier PDF Ingestion Engine:**
   - Layout-aware extraction using `pdfplumber` to preserve tabular grids as Markdown tables, with fallbacks to `PyMuPDF` (`fitz`) and `pypdf`.
-  - Fuses dense vector embeddings (Google Gemini) and sparse lexical search (BM25) via Reciprocal Rank Fusion.
+  - Token-safe recursive chunking (500 chars, 100 overlap) and batching (10 chunks/request) to prevent physical model context overflow.
+  - Fuses dense vector embeddings (Nomic Embed Text v1.5) and sparse lexical search (BM25) via Reciprocal Rank Fusion.
 * **Optimized Multi-Stage Lightweight Docker Container:**
   - Two-stage architecture (`builder` -> `runner`) that strips build-essential toolchains, C-compilers, test packages, and pyc caches from the final image.
   - Minimal production attack surface with an integrated `HEALTHCHECK` for automated AWS EC2 self-healing.
@@ -158,7 +163,7 @@ flowchart TD
 | **Mathematical Rendering** | KaTeX Mathematical Engine, Markdown Normalizer |
 | **Reasoning Model (LLM)** | Ollama Cloud (`gpt-oss:120b`) with multi-key failover |
 | **Hybrid Document Retrieval** | ChromaDB (Dense Vectors), BM25 (Sparse Lexical), Ensemble Reciprocal Rank Fusion |
-| **Embeddings Model** | Google Gemini Embeddings (`gemini-embedding-2`, 768 dimensions) |
+| **Embeddings Model** | Nomic Embed Text v1.5 (`nomic-embed-text-v1.5`, 768 dimensions, OpenAI-compatible API) |
 | **Document Parsing** | `pdfplumber` (layout & tables), `PyMuPDF` (`fitz`), `pypdf` |
 | **External Literature Tools** | Tavily Web Search API, ArXiv Public Literature API |
 | **State Persistence & Memory** | Upstash Redis Cloud REST API, LangGraph Checkpointer |
@@ -181,7 +186,7 @@ conversational-research-rag/
 │   │   ├── __init__.py                   # Aggregates & exposes all sub-routers
 │   │   ├── health/                       # Health & root endpoints (GET /, GET /health)
 │   │   │   └── router.py
-│   │   ├── documents/                    # PDF upload & vector ingestion (POST /upload)
+│   │   ├── documents/                    # PDF upload & SSE streaming ingestion (POST /upload, POST /upload/stream)
 │   │   │   └── router.py
 │   │   ├── chat/                         # Query execution & SSE streaming (POST /chat, POST /chat/stream)
 │   │   │   └── router.py
@@ -232,9 +237,10 @@ conversational-research-rag/
 │   │
 │   ├── ingestion/                        # Document Ingestion Pipeline
 │   │   ├── __init__.py
+│   │   ├── embeddings.py                 # Nomic embeddings factory (LangChain OpenAIEmbeddings)
 │   │   ├── loader.py                     # Layout-aware PDF & table parser
 │   │   ├── splitter.py                   # Recursive character text chunker
-│   │   ├── retriever.py                  # Hybrid EnsembleRetriever (Chroma + BM25)
+│   │   ├── retriever.py                  # Hybrid EnsembleRetriever (Chroma + BM25) with dynamic progress
 │   │   └── pipeline.py                   # Async ingestion pipeline
 │   │
 │   └── utils/                            # Shared Utilities
@@ -299,6 +305,7 @@ The FastAPI backend exposes fully asynchronous, modular REST endpoints organized
 | **System** | `GET` | `/` | Root greeting and API running confirmation. |
 | **Health** | `GET` | `/health` | Service health status and active retriever indexing check. |
 | **Documents** | `POST` | `/upload` | Multipart PDF upload. Parses layout, chunks text, creates embeddings, and updates the hybrid retriever. |
+| **Documents** | `POST` | `/upload/stream` | Server-Sent Events (SSE) streaming PDF ingestion with dynamic request counters and remaining-time estimation. |
 | **Chat** | `POST` | `/chat` | Executes LangGraph research query synchronously, returning formatted answer, verdict, and citations. |
 | **Streaming** | `POST` | `/chat/stream` | Server-Sent Events (SSE) streaming progress status, real-time tokens, and final answer payload. |
 | **Sessions** | `GET` | `/user/{username}/sessions` | Fetches stored conversation sessions for a user from Upstash Redis (or in-memory cache). |
@@ -307,9 +314,16 @@ The FastAPI backend exposes fully asynchronous, modular REST endpoints organized
 | **Memory** | `POST` | `/session/{session_id}/clear` | Clears conversation state checkpointer memory for a specific session ID. |
 | **Memory** | `POST` | `/user/{username}/clear` | Clears all conversation sessions and checkpointer memory threads for a user. |
 
+### Streaming Event Format (`POST /upload/stream`)
+Real-time Server-Sent Events during document layout extraction, chunking, and batch embedding generation:
+* **Parsing:** `data: {"type": "progress", "stage": "parsing", "message": "Extracting text...", "percent": 5.0}`
+* **Started:** `data: {"type": "progress", "stage": "started", "completed_requests": 0, "total_requests": 9, "estimated_remaining_seconds": 9.6, "rate_seconds_per_req": 1.07}`
+* **Embedding Progress:** `data: {"type": "progress", "stage": "embedding", "completed_requests": 4, "total_requests": 9, "estimated_remaining_seconds": 5.4, "rate_seconds_per_req": 1.08, "percent": 44.4}`
+* **Completion:** `data: {"type": "completed", "status": "success", "chunks_indexed": 89, "files": ["paper.pdf"], "percent": 100.0}`
+
 ### Streaming Event Format (`POST /chat/stream`)
-The streaming endpoint delivers live Server-Sent Events with standard JSON payloads:
-* **Node Status:** `data: {"type": "status", "node": "agent_reasoning"}`
+The streaming chat endpoint delivers live Server-Sent Events with standard JSON payloads:
+* **Node Status:** `data: {"type": "status", "node": "retrieve"}`
 * **Token Chunks:** `data: {"type": "token", "content": "..."}`
 * **Final Synthesis:** `data: {"type": "final", "answer": "...", "route": "retrieve", "sources": [...], "claim_analysis": {...}, "reflection_logs": [...]}`
 * **Termination:** `data: [DONE]`
@@ -334,7 +348,7 @@ The streaming endpoint delivers live Server-Sent Events with standard JSON paylo
 
 * Python 3.11+
 * [Ollama Cloud Account & API Key](https://ollama.com/settings/keys)
-* [Google AI Studio API Key](https://aistudio.google.com/app/apikey) (for Gemini Embeddings)
+* Remote Nomic Embedding API Key (`EMBEDDING_MODEL_KEY` for `https://nomicapi.duckdns.org/v1`)
 * [Upstash Redis REST Database](https://upstash.com) (for persistent conversation history)
 * [Tavily API Key](https://app.tavily.com) (optional, for live web search; falls back to ArXiv)
 
@@ -361,8 +375,16 @@ OLLAMA_BASE_URL="https://ollama.com"
 MAX_CHAT_HISTORY_MESSAGES=20
 RETRIEVER_K=6
 
-# Embeddings & External Search
-GOOGLE_API_KEY="your_google_gemini_api_key"
+# Embeddings & Search Configuration (Nomic Embed Text v1.5)
+EMBEDDING_MODEL_KEY="your_nomic_api_key"
+EMBEDDING_BASE_URL="https://nomicapi.duckdns.org/v1"
+EMBEDDING_MODEL_NAME="nomic-embed-text-v1.5"
+EMBEDDING_DIMENSION=768
+EMBEDDING_CHUNK_SIZE=10
+BASELINE_EMBEDDING_LATENCY=1.07
+BASELINE_EMBEDDING_THROUGHPUT=0.93
+CHUNK_SIZE=500
+CHUNK_OVERLAP=100
 TAVILY_API_KEY="your_tavily_api_key"
 
 # Upstash Redis Configuration (LangGraph Checkpointer & User Session Storage)

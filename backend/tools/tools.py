@@ -77,14 +77,16 @@ async def execute_retriever(retriever, query: str) -> List[Document]:
     """Query the LangChain retriever asynchronously and safely."""
     if retriever is None:
         return []
+    # Prefix query for Nomic retrieval model if not already present
+    search_query = query if query.startswith("search_query: ") else f"search_query: {query}"
     try:
         if hasattr(retriever, "ainvoke"):
-            return await retriever.ainvoke(query)
-        return await asyncio.to_thread(retriever.invoke, query)
+            return await retriever.ainvoke(search_query)
+        return await asyncio.to_thread(retriever.invoke, search_query)
     except Exception as e:
         logger.error(f"Retriever invocation failed: {e}")
         try:
-            return await asyncio.to_thread(retriever.invoke, query)
+            return await asyncio.to_thread(retriever.invoke, search_query)
         except Exception:
             return []
 
