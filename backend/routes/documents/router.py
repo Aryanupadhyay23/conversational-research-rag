@@ -1,8 +1,8 @@
 import json
 import asyncio
 import logging
-from typing import List
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from typing import List, Optional
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import StreamingResponse
 
 from backend.services import get_agent_service
@@ -24,7 +24,11 @@ class SyncUploadWrapper:
 
 
 @router.post("/upload")
-async def upload_documents(files: List[UploadFile] = File(...)):
+async def upload_documents(
+    files: List[UploadFile] = File(...),
+    session_id: Optional[str] = Form(None),
+    username: Optional[str] = Form(None),
+):
     """
     Ingest uploaded research paper PDFs into vectorstore asynchronously (standard non-streaming).
     Returns chunk count and indexed document filenames.
@@ -41,7 +45,8 @@ async def upload_documents(files: List[UploadFile] = File(...)):
             filenames.append(file.filename)
 
         retriever, chunk_count = await ingest_documents_async(wrapped_files)
-        get_agent_service().set_retriever(retriever)
+        thread_key = f"{username}:{session_id}" if username and session_id else (session_id or None)
+        get_agent_service().set_retriever(retriever, session_id=thread_key)
         return {
             "status": "success",
             "chunks_indexed": chunk_count,
@@ -53,7 +58,11 @@ async def upload_documents(files: List[UploadFile] = File(...)):
 
 
 @router.post("/upload/stream")
-async def upload_documents_stream(files: List[UploadFile] = File(...)):
+async def upload_documents_stream(
+    files: List[UploadFile] = File(...),
+    session_id: Optional[str] = Form(None),
+    username: Optional[str] = Form(None),
+):
     """
     Stream real-time embedding progress and dynamic remaining-time estimates
     for uploaded research paper PDFs using Server-Sent Events (SSE).
@@ -89,7 +98,8 @@ async def upload_documents_stream(files: List[UploadFile] = File(...)):
                 wrapped_files,
                 progress_callback=sync_progress_callback
             )
-            get_agent_service().set_retriever(retriever)
+            thread_key = f"{username}:{session_id}" if username and session_id else (session_id or None)
+            get_agent_service().set_retriever(retriever, session_id=thread_key)
             loop.call_soon_threadsafe(
                 queue.put_nowait,
                 {

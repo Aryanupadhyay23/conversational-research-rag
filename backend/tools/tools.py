@@ -12,9 +12,32 @@ from backend.config import TAVILY_API_KEY
 logger = logging.getLogger(__name__)
 
 def search_arxiv(query: str, max_results: int = 4) -> List[Document]:
-    """Search ArXiv public repository using LangChain's ArxivAPIWrapper."""
+    """Search ArXiv public repository using LangChain's ArxivAPIWrapper returning individual documents."""
     try:
         wrapper = ArxivAPIWrapper(top_k_results=max_results, doc_content_chars_max=1200)
+        # wrapper.load returns individual Document per paper with metadata
+        if hasattr(wrapper, "load"):
+            raw_docs = wrapper.load(query)
+            docs = []
+            for d in raw_docs:
+                meta = dict(d.metadata or {})
+                paper_title = meta.get("Title") or meta.get("title") or f"ArXiv Paper: {query}"
+                entry_link = meta.get("Entry ID") or meta.get("link") or meta.get("id") or "https://arxiv.org"
+                docs.append(Document(
+                    page_content=d.page_content,
+                    metadata={
+                        "source": "arxiv",
+                        "title": paper_title,
+                        "link": entry_link,
+                        "url": entry_link,
+                        "doc_type": "academic_paper",
+                        "authors": meta.get("Authors", "")
+                    }
+                ))
+            if docs:
+                return docs
+
+        # Fallback to run() if load() is not available
         result_text = wrapper.run(query)
         if result_text and "No good Arxiv Result was found" not in result_text:
             return [Document(
@@ -23,6 +46,7 @@ def search_arxiv(query: str, max_results: int = 4) -> List[Document]:
                     "source": "arxiv",
                     "title": f"ArXiv Literature: {query}",
                     "link": "https://arxiv.org",
+                    "url": "https://arxiv.org",
                     "doc_type": "academic_paper"
                 }
             )]
@@ -64,10 +88,7 @@ def search_tavily(query: str, max_results: int = 4) -> List[Document]:
     if fallback_docs:
         return fallback_docs
 
-    return [Document(
-        page_content=f"Search performed for query: '{query}'.",
-        metadata={"source": "web_fallback", "title": query}
-    )]
+    return []
 
 async def search_tavily_async(query: str, max_results: int = 4) -> List[Document]:
     """Asynchronously search the web via Tavily or ArXiv without blocking the event loop."""

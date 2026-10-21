@@ -6,6 +6,7 @@ using Upstash Redis REST API. Supports both synchronous and asynchronous operati
 
 import logging
 import asyncio
+import re
 from typing import Optional, AsyncIterator, Iterator, Sequence, Tuple, Any, Dict
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
@@ -161,11 +162,20 @@ def get_redis_client():
 _IN_MEMORY_USER_SESSIONS: Dict[str, Dict[str, Any]] = {}
 
 
+def is_guest_user(username: Optional[str]) -> bool:
+    """Return True if user is in guest mode."""
+    if not username:
+        return True
+    u = username.strip().lower()
+    return u.startswith("guest_") or u in ("guest", "default_user", "")
+
+
 def sanitize_username(username: Optional[str]) -> str:
-    """Sanitize username or return default."""
+    """Sanitize username or return default, preserving words by replacing spaces with underscores."""
     if not username:
         return "default_user"
-    clean = "".join(c for c in username.strip() if c.isalnum() or c in ("_", "-", ".")).lower()
+    cleaned = re.sub(r"\s+", "_", username.strip().lower())
+    clean = "".join(c for c in cleaned if c.isalnum() or c in ("_", "-", "."))
     return clean if clean else "default_user"
 
 
@@ -202,7 +212,7 @@ def save_user_sessions_to_redis(username: str, sessions: Dict[str, Any]) -> bool
         return True
     except Exception as e:
         logger.warning("Error saving sessions for user '%s' to Redis: %s", clean_user, e)
-        return True
+        return False
 
 
 def delete_user_session_from_redis(username: str, session_id: str, checkpointer: Optional[BaseCheckpointSaver] = None) -> bool:
@@ -299,7 +309,7 @@ async def asave_user_sessions_to_redis(username: str, sessions: Dict[str, Any]) 
         return True
     except Exception as e:
         logger.warning("Error saving sessions for user '%s' to async Redis: %s", clean_user, e)
-        return True
+        return False
     finally:
         try:
             await client.close()

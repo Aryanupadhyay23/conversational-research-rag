@@ -8,6 +8,8 @@ __pycache__/
 .env
 .env.*
 *.env
+.env.rag
+.streamlit/secrets.toml
 
 # Virtual environments
 venv/
@@ -15,6 +17,9 @@ venv/
 env/
 myenv/
 ENV/
+build/
+dist/
+*.egg-info/
 
 # Git & CI/CD
 .git/
@@ -37,8 +42,11 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# Streamlit local secrets
-.streamlit/secrets.toml
+# Local databases and vector stores
+chroma_db/
+.chroma/
+*.db
+*.sqlite3
 
 # Host deployment scripts & config (run on host, not in container)
 deploy/
@@ -50,4 +58,3 @@ appspec.yml
 scratch/
 Dockerfile
 .dockerignore
-

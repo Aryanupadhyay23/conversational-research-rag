@@ -1,7 +1,7 @@
 import concurrent.futures
 import asyncio
 import logging
-from typing import List, Dict, Any, Coroutine, TypeVar
+from typing import List, Dict, Any, Coroutine, TypeVar, Sequence
 
 from langchain_core.documents import Document
 from langchain_core.prompts import PromptTemplate, format_document
@@ -58,9 +58,46 @@ def extract_sources_metadata(docs: List[Document]) -> List[Dict[str, Any]]:
                 "url": meta.get("url") or meta.get("link", ""),
                 "source_type": meta.get("doc_type", meta.get("source", "doc")),
                 "snippet": snippet,
-                "full_text": clean_text[:800]
+                "full_text": clean_text[:300]
             })
     return sources
+
+def filter_clean_chat_history(
+    messages: Sequence[Any],
+    current_question: str = "",
+    max_messages: int = 20
+) -> List[Any]:
+    """
+    Extract clean conversation history without internal orchestration messages
+    (such as tool dispatching or rewrite notifications) or the current user turn.
+    """
+    clean_history = []
+    for m in messages:
+        content = getattr(m, "content", "")
+        if not isinstance(content, str):
+            continue
+
+        # Ignore internal coordinator messages
+        if (
+            content.startswith("Dispatching retrieval tools")
+            or content.startswith("Retrieved context sufficient")
+            or content.startswith("Searching again with reformulated query:")
+        ):
+            continue
+
+        # Ignore messages with raw tool calls
+        if getattr(m, "tool_calls", None):
+            continue
+
+        # Ignore the current turn's question so it does not get duplicated
+        m_type = getattr(m, "type", "")
+        if m_type == "human" and current_question and content.strip() == current_question.strip():
+            continue
+
+        if m_type in ("human", "ai"):
+            clean_history.append(m)
+
+    return clean_history[-max_messages:]
 
 def run_async_safe(coro: Coroutine[Any, Any, T]) -> T:
     """Safely execute async coroutine in synchronous contexts."""

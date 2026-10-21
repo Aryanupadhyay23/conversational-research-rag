@@ -63,7 +63,7 @@ EMBEDDING_MODEL_NAME = _clean_env(os.getenv("EMBEDDING_MODEL_NAME")) or "nomic-e
 EMBEDDING_DIMENSION = int(_clean_env(os.getenv("EMBEDDING_DIMENSION")) or "768")
 EMBEDDING_CHUNK_SIZE = int(_clean_env(os.getenv("EMBEDDING_CHUNK_SIZE")) or "10")
 EMBEDDING_TIMEOUT = float(_clean_env(os.getenv("EMBEDDING_TIMEOUT")) or "60.0")
-EMBEDDING_MAX_WORKERS = int(_clean_env(os.getenv("EMBEDDING_MAX_WORKERS")) or "1")
+EMBEDDING_MAX_WORKERS = int(_clean_env(os.getenv("EMBEDDING_MAX_WORKERS")) or "2")
 BASELINE_EMBEDDING_LATENCY = float(_clean_env(os.getenv("BASELINE_EMBEDDING_LATENCY")) or "1.07")
 BASELINE_EMBEDDING_THROUGHPUT = float(_clean_env(os.getenv("BASELINE_EMBEDDING_THROUGHPUT")) or "0.93")
 
@@ -76,8 +76,8 @@ if TAVILY_API_KEY:
 MAX_RETRIEVAL_ATTEMPTS = 3
 MAX_QUERY_REWRITES = 1
 RETRIEVER_K = int(_clean_env(os.getenv("RETRIEVER_K")) or "6")
-CHUNK_SIZE = int(_clean_env(os.getenv("CHUNK_SIZE")) or "500")
-CHUNK_OVERLAP = int(_clean_env(os.getenv("CHUNK_OVERLAP")) or "100")
+CHUNK_SIZE = int(_clean_env(os.getenv("CHUNK_SIZE")) or "1200")
+CHUNK_OVERLAP = int(_clean_env(os.getenv("CHUNK_OVERLAP")) or "200")
 MAX_CHAT_HISTORY_MESSAGES = int(_clean_env(os.getenv("MAX_CHAT_HISTORY_MESSAGES")) or "20")
 
 # --- Upstash Redis Checkpointer Settings ---

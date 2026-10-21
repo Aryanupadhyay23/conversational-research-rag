@@ -57,18 +57,20 @@ async def claim_analysis_node(state: GraphState, eval_llm) -> dict:
                 "claim": claim_text,
                 "context": context_str
             })
-            verdict = "SUPPORTED"
+            verdict = "UNVERIFIED"
             raw_upper = raw_text.upper()
             if "REFUTED" in raw_upper or "CONTRADICT" in raw_upper:
                 verdict = "REFUTED"
             elif "PARTIALLY" in raw_upper:
                 verdict = "PARTIALLY_SUPPORTED"
-            elif "INCONCLUSIVE" in raw_upper or "UNVERIFIED" in raw_upper or "NOT_ENOUGH_INFO" in raw_upper:
-                verdict = "INCONCLUSIVE"
+            elif "SUPPORTED" in raw_upper and "NOT SUPPORTED" not in raw_upper and "UNVERIFIED" not in raw_upper:
+                verdict = "SUPPORTED"
+            else:
+                verdict = "UNVERIFIED"
             analysis_dict = {
                 "claim": claim_text,
                 "verdict": verdict,
-                "confidence": 0.85,
+                "confidence": 0.75 if verdict != "UNVERIFIED" else 0.5,
                 "reasoning": f"Evidence evaluated across {len(docs)} literature references.",
                 "superseding_papers": []
             }
@@ -76,9 +78,9 @@ async def claim_analysis_node(state: GraphState, eval_llm) -> dict:
         logger.warning(f"Claim Analysis fallback: {e}")
         analysis_dict = {
             "claim": claim_text,
-            "verdict": "SUPPORTED",
-            "confidence": 0.85,
-            "reasoning": "Evidence evaluated across literature references.",
+            "verdict": "UNVERIFIED",
+            "confidence": 0.5,
+            "reasoning": "Evidence insufficient or evaluation failed; defaulting to unverified claim status.",
             "superseding_papers": []
         }
 

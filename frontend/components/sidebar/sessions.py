@@ -1,4 +1,5 @@
 import datetime
+import uuid
 import streamlit as st
 from frontend.api_client import (
     save_user_sessions_to_backend,
@@ -26,7 +27,7 @@ def render_session_sidebar(service=None) -> str:
 
     # 2. New Chat Button
     if st.sidebar.button("＋ New Research Chat", use_container_width=True, key="btn_new_chat"):
-        new_id = f"session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        new_id = f"session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
         st.session_state.sessions[new_id] = {
             "title": "New Research Chat",
             "messages": [],
@@ -68,7 +69,7 @@ def render_session_sidebar(service=None) -> str:
                     if remaining:
                         st.session_state.current_session_id = remaining[-1]
                     else:
-                        init_id = f"session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                        init_id = f"session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
                         st.session_state.sessions[init_id] = {
                             "title": "New Research Chat",
                             "messages": [],
@@ -103,7 +104,7 @@ def render_session_sidebar(service=None) -> str:
 
     if st.sidebar.button("🗑 Clear All User Chats", use_container_width=True, key=f"btn_clear_all_{username}"):
         clear_user_history_on_backend(username)
-        init_id = f"session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        init_id = f"session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
         st.session_state.sessions = {
             init_id: {
                 "title": "New Research Chat",

@@ -1,11 +1,49 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+env/
+myenv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# Environment files and credentials
 .env
 .env.*
 *.env
 .env.rag
-myenv/
-venv/
-__pycache__/
-*.pyc
-.pytest_cache/
+.streamlit/secrets.toml
+
+# Local databases and vector stores
+chroma_db/
+.chroma/
+*.db
+*.sqlite3
+
+# Logs & scratch files
 .logs/
 *.log
+scratch/
+
+# Testing and code quality caches
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE and Editor artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

@@ -29,6 +29,7 @@ langgraph-checkpoint-upstash-redis>=0.1.0
 chromadb==1.5.9
 rank-bm25==0.2.2
 tavily-python>=0.5.0
+arxiv>=2.1.0
 
 # PDF Extraction & Processing
 pypdf==6.11.0

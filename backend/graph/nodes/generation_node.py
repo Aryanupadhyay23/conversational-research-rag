@@ -10,7 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from backend.schemas.state import GraphState
 from backend.prompts.generation import answer_generation_prompt
-from backend.utils.helpers import format_docs_to_context, extract_sources_metadata
+from backend.utils.helpers import format_docs_to_context, extract_sources_metadata, filter_clean_chat_history
 from backend.config import MAX_CHAT_HISTORY_MESSAGES
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ async def _check_groundedness(answer: str, context: str, eval_llm) -> dict:
 
     try:
         try:
-            chain = GROUNDING_PROMPT | eval_llm.with_structured_output(GroundednessGrade)
+            chain = (GROUNDING_PROMPT | eval_llm.with_structured_output(GroundednessGrade)).with_config(tags=["eval_stream"])
             res: GroundednessGrade = await asyncio.wait_for(
                 chain.ainvoke({"context": context[:25000], "answer": answer[:8000]}),
                 timeout=8.0
@@ -51,7 +51,7 @@ async def _check_groundedness(answer: str, context: str, eval_llm) -> dict:
                 "reason": res.reason
             }
         except Exception:
-            chain = GROUNDING_PROMPT | eval_llm | StrOutputParser()
+            chain = (GROUNDING_PROMPT | eval_llm | StrOutputParser()).with_config(tags=["eval_stream"])
             raw = await asyncio.wait_for(
                 chain.ainvoke({"context": context[:25000], "answer": answer[:8000]}),
                 timeout=8.0
@@ -97,10 +97,10 @@ async def generate_answer_node(state: GraphState, llm, eval_llm=None) -> dict:
 
     context_str = "\n\n".join(context_parts) if context_parts else "No external documents."
 
-    # Filter previous turns natively using LangChain filter_messages
-    history = filter_messages(messages, include_types=["human", "ai"])[:-1][-MAX_CHAT_HISTORY_MESSAGES:]
+    # Filter previous turns cleanly, excluding internal orchestration messages and current question
+    history = filter_clean_chat_history(messages, current_question=question, max_messages=MAX_CHAT_HISTORY_MESSAGES)
 
-    chain = answer_generation_prompt | llm | StrOutputParser()
+    chain = (answer_generation_prompt | llm | StrOutputParser()).with_config(tags=["answer_stream"])
     generation = await chain.ainvoke({
         "chat_history": history,
         "route": route,

@@ -5,6 +5,8 @@ from backend.schemas.state import GraphState
 from backend.schemas.router import RouterDecision
 from backend.prompts.router import router_prompt
 
+import re
+
 logger = logging.getLogger(__name__)
 
 async def router_node(state: GraphState, eval_llm) -> dict:
@@ -19,23 +21,20 @@ async def router_node(state: GraphState, eval_llm) -> dict:
         decision = "direct_answer"
         reason = "Conversational greeting detected."
 
-    # Fast-path 2: Explicit claim verification intent
-    elif any(kw in q_clean for kw in ["verify", "fact check", "is it true", "debunk", "claim", "prove", "true or false"]):
+    # Fast-path 2: Explicit claim verification intent (word boundary check to avoid substrings like 'improve' or 'disclaimer')
+    elif re.search(r"\b(verify|fact check|is it true|debunk|claim|claims|prove|proves|true or false)\b", q_clean):
         decision = "verify_claim"
         reason = "Claim verification keyword detected."
 
-    # Fast-path 3: General knowledge, comparisons, definitions & conceptual explanations
-    elif any(q_clean.startswith(p) for p in [
-        "what is", "what are", "difference between", "compare", "explain",
-        "how does", "how do", "why is", "why do", "define", "describe", "tell me about"
-    ]) and not any(kw in q_clean for kw in ["in this paper", "uploaded", "in the pdf", "the authors", "this study"]):
-        decision = "direct_answer"
-        reason = "Direct conceptual/comparative query."
-
-    # Fast-path 4: Paper specific queries
-    elif any(kw in q_clean for kw in ["in this paper", "the paper", "uploaded pdf", "in the document", "the author", "authors conclude", "section", "abstract"]):
+    # Fast-path 3: Paper specific queries
+    elif any(kw in q_clean for kw in ["in this paper", "the paper", "uploaded pdf", "in the document", "the author", "authors conclude", "section", "abstract", "proposed", "benchmark", "loss function", "architecture", "dataset", "table"]):
         decision = "retrieve"
         reason = "Document/paper reference detected."
+
+    # Fast-path 4: Explicit trivia/general knowledge queries that clearly do not pertain to research papers
+    elif any(q_clean.startswith(p) for p in ["what is the capital of", "who is the president", "weather in", "tell me a joke"]):
+        decision = "direct_answer"
+        reason = "Direct general trivia/entertainment query."
 
     # LLM classification with LangChain structured output
     else:

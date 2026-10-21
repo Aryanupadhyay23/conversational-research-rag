@@ -41,57 +41,97 @@ class AgentService:
         checkpointer: Optional[BaseCheckpointSaver] = None
     ):
         self.retriever = retriever
+        self.retrievers: Dict[str, BaseRetriever] = {}
         self.checkpointer = checkpointer or get_checkpointer()
         self.graph = None
         self._compile()
 
-    def _compile(self):
-        """Compile the StateGraph."""
+    def _compile(self, custom_retriever: Optional[BaseRetriever] = None):
+        """Compile the StateGraph with dynamic per-session retriever resolution."""
+        def _resolve_active_retriever(config: Optional[RunnableConfig] = None) -> Optional[BaseRetriever]:
+            if custom_retriever is not None:
+                return custom_retriever
+            if config and isinstance(config, dict):
+                configurable = config.get("configurable", {})
+                thread_id = configurable.get("thread_id")
+                if thread_id:
+                    if thread_id in self.retrievers:
+                        return self.retrievers[thread_id]
+                    if ":" in thread_id:
+                        user, sess = thread_id.split(":", 1)
+                        if sess in self.retrievers:
+                            return self.retrievers[sess]
+                        if user in self.retrievers:
+                            return self.retrievers[user]
+            return self.retriever
+
         self.graph = build_graph(
-            retriever=self.retriever,
+            retriever=_resolve_active_retriever,
             checkpointer=self.checkpointer
         )
 
-    def set_retriever(self, retriever: BaseRetriever):
-        """Update retriever and recompile workflow."""
-        self.retriever = retriever
-        self._compile()
+    def set_retriever(self, retriever: BaseRetriever, session_id: Optional[str] = None):
+        """Update retriever for a specific session or globally."""
+        if session_id:
+            self.retrievers[session_id] = retriever
+        else:
+            self.retriever = retriever
 
-    def clear_memory(self, session_id: Optional[str] = None):
+    def get_retriever(self, session_id: Optional[str] = None) -> Optional[BaseRetriever]:
+        """Get retriever for session or fallback to default."""
+        if session_id and session_id in self.retrievers:
+            return self.retrievers[session_id]
+        return self.retriever
+
+    def clear_memory(self, session_id: Optional[str] = None, username: Optional[str] = None):
         """Reset conversation memory checkpointer for a specific session or globally."""
-        if session_id and hasattr(self.checkpointer, "delete_thread"):
-            try:
-                self.checkpointer.delete_thread(session_id)
-                logger.info("Cleared conversation memory for session '%s' in checkpointer.", session_id)
-                return
-            except Exception as e:
-                logger.warning("Failed to delete thread '%s' from checkpointer: %s", session_id, e)
+        keys_to_delete = []
+        if session_id:
+            keys_to_delete.append(session_id)
+            if username:
+                keys_to_delete.append(f"{username}:{session_id}")
+
+        if keys_to_delete and hasattr(self.checkpointer, "delete_thread"):
+            for k in keys_to_delete:
+                try:
+                    self.checkpointer.delete_thread(k)
+                    logger.info("Cleared conversation memory for thread '%s' in checkpointer.", k)
+                except Exception as e:
+                    logger.warning("Failed to delete thread '%s' from checkpointer: %s", k, e)
+            return
 
         self.checkpointer = get_checkpointer()
         self._compile()
 
-    async def aclear_memory(self, session_id: Optional[str] = None):
+    async def aclear_memory(self, session_id: Optional[str] = None, username: Optional[str] = None):
         """Reset conversation memory checkpointer asynchronously without blocking."""
-        if session_id and hasattr(self.checkpointer, "adelete_thread"):
-            try:
-                await self.checkpointer.adelete_thread(session_id)
-                logger.info("Cleared async conversation memory for session '%s' in checkpointer.", session_id)
-                return
-            except Exception as e:
-                logger.warning("Failed to async delete thread '%s' from checkpointer: %s", session_id, e)
-        elif session_id and hasattr(self.checkpointer, "delete_thread"):
-            try:
-                await asyncio.to_thread(self.checkpointer.delete_thread, session_id)
-                logger.info("Cleared conversation memory for session '%s' in checkpointer via thread.", session_id)
-                return
-            except Exception as e:
-                logger.warning("Failed to delete thread '%s' from checkpointer: %s", session_id, e)
+        keys_to_delete = []
+        if session_id:
+            keys_to_delete.append(session_id)
+            if username:
+                keys_to_delete.append(f"{username}:{session_id}")
+
+        if keys_to_delete:
+            for k in keys_to_delete:
+                if hasattr(self.checkpointer, "adelete_thread"):
+                    try:
+                        await self.checkpointer.adelete_thread(k)
+                        logger.info("Cleared async conversation memory for thread '%s' in checkpointer.", k)
+                    except Exception as e:
+                        logger.warning("Failed to async delete thread '%s' from checkpointer: %s", k, e)
+                elif hasattr(self.checkpointer, "delete_thread"):
+                    try:
+                        await asyncio.to_thread(self.checkpointer.delete_thread, k)
+                        logger.info("Cleared conversation memory for thread '%s' via thread.", k)
+                    except Exception as e:
+                        logger.warning("Failed to delete thread '%s' from checkpointer: %s", k, e)
+            return
 
         self.checkpointer = get_checkpointer()
         self._compile()
 
     def _build_initial_state(self, user_query: str) -> dict:
-        """Create clean initial GraphState dictionary."""
+        """Create clean initial GraphState dictionary with groundedness and retrieval control."""
         return {
             "messages": [HumanMessage(content=user_query)],
             "question": user_query,
@@ -103,6 +143,8 @@ class AgentService:
             "claim_analysis": None,
             "is_relevant": False,
             "generation": "",
+            "groundedness": None,
+            "needs_retrieval": False,
             "formatted_response": None,
             "metadata": {},
             "reflection_logs": []
@@ -123,8 +165,10 @@ class AgentService:
         logs = final_state.get("reflection_logs", [])
         metadata = final_state.get("metadata", {})
         claim_analysis = final_state.get("claim_analysis")
+        groundedness = final_state.get("groundedness") or metadata.get("groundedness")
         sources = metadata.get("sources") or extract_sources_metadata(final_state.get("documents", []))
 
+        metadata["groundedness"] = groundedness
         return QueryResult(
             answer=answer,
             route=route,
@@ -164,13 +208,21 @@ class AgentService:
 
                 elif kind == "on_chat_model_stream":
                     metadata = event.get("metadata", {})
-                    # Stream tokens when generating answer
-                    if metadata.get("langgraph_node") == "generate_answer" or active_node == "generate_answer":
-                        chunk = event.get("data", {}).get("chunk")
-                        content = chunk.content if hasattr(chunk, "content") else str(chunk)
-                        if content:
-                            has_streamed_tokens = True
-                            yield {"type": "token", "content": content}
+                    tags = event.get("tags", [])
+                    # Stream tokens ONLY when generating main answer (tagged with "answer_stream")
+                    # and ignore internal evaluation/grading chains that run in the same node
+                    if (
+                        metadata.get("langgraph_node") == "generate_answer"
+                        or active_node == "generate_answer"
+                    ):
+                        if "eval_stream" in tags or "eval" in tags:
+                            continue
+                        if not tags or "answer_stream" in tags:
+                            chunk = event.get("data", {}).get("chunk")
+                            content = chunk.content if hasattr(chunk, "content") else str(chunk)
+                            if content:
+                                has_streamed_tokens = True
+                                yield {"type": "token", "content": content}
 
             # Final State Resolution
             try:
@@ -184,6 +236,7 @@ class AgentService:
             logs = final_state.get("reflection_logs", [])
             metadata = final_state.get("metadata", {})
             claim_analysis = final_state.get("claim_analysis")
+            groundedness = final_state.get("groundedness") or metadata.get("groundedness")
             sources = metadata.get("sources") or extract_sources_metadata(final_state.get("documents", []))
 
             # If tokens were not streamed by LLM, yield complete answer
@@ -196,6 +249,7 @@ class AgentService:
                 "route": route,
                 "sources": sources,
                 "claim_analysis": claim_analysis,
+                "groundedness": groundedness,
                 "reflection_logs": logs,
                 "metadata": metadata
             }
@@ -211,6 +265,7 @@ class AgentService:
                     "route": res.route,
                     "sources": res.sources,
                     "claim_analysis": res.claim_analysis,
+                    "groundedness": res.metadata.get("groundedness"),
                     "reflection_logs": res.reflection_logs,
                     "metadata": res.metadata
                 }

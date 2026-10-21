@@ -1,7 +1,8 @@
 import time
 import math
+import uuid
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional, Callable
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
@@ -19,10 +20,12 @@ MAX_EMBEDDING_WORKERS = EMBEDDING_MAX_WORKERS
 
 def build_semantic_retriever(
     splits: List[Document],
-    progress_callback: Optional[Callable[[dict], None]] = None
+    progress_callback: Optional[Callable[[dict], None]] = None,
+    collection_name: Optional[str] = None
 ) -> BaseRetriever:
     """
-    Build dense Chroma retriever with dynamic real-time progress tracking
+    Build dense Chroma retriever with unique isolated collection name,
+    parallel batch embedding, dynamic real-time progress tracking,
     and estimated completion time calculation.
     """
     from langchain_chroma import Chroma
@@ -55,12 +58,8 @@ def build_semantic_retriever(
             "disclaimer": "Estimate based on tested Nomic v1.5 API latency (~1.07s/req baseline). Network latency and server load may affect completion time."
         })
 
-    all_texts = []
-    all_metas = []
-    all_ids = []
-    all_vectors = []
-
-    for req_idx, batch_docs in enumerate(batches):
+    def _process_batch(item):
+        req_idx, batch_docs = item
         clean_texts = [doc.page_content for doc in batch_docs]
         metadatas = [doc.metadata for doc in batch_docs]
         ids = [doc.metadata.get("chunk_id") or f"doc_{req_idx}_{i}" for i, doc in enumerate(batch_docs)]
@@ -68,41 +67,88 @@ def build_semantic_retriever(
             t if t.startswith("search_document: ") else f"search_document: {t}"
             for t in clean_texts
         ]
-        try:
-            vectors = embeddings.embed_documents(prefixed_texts)
-        except Exception as e:
-            logger.error(f"Embedding generation failed on batch {req_idx}: {type(e).__name__}")
-            raise
+        vectors = embeddings.embed_documents(prefixed_texts)
+        return req_idx, clean_texts, metadatas, ids, vectors
 
-        all_texts.extend(clean_texts)
-        all_metas.extend(metadatas)
-        all_ids.extend(ids)
-        all_vectors.extend(vectors)
+    indexed_results = [None] * len(batches)
+    completed_requests = 0
 
-        completed_requests = req_idx + 1
-        elapsed = time.time() - start_time
-        actual_rate = elapsed / completed_requests
-        remaining_requests = total_requests - completed_requests
-        dynamic_est_remaining = round(remaining_requests * actual_rate, 1)
-        percent = round((completed_requests / total_requests) * 100, 1)
+    workers = min(MAX_EMBEDDING_WORKERS, len(batches)) if MAX_EMBEDDING_WORKERS > 1 else 1
 
-        if progress_callback:
-            progress_callback({
-                "stage": "embedding",
-                "message": f"Generating embeddings... {completed_requests} of {total_requests} requests",
-                "completed_requests": completed_requests,
-                "total_requests": total_requests,
-                "total_chunks": total_chunks,
-                "chunk_size": request_batch_size,
-                "elapsed_seconds": round(elapsed, 1),
-                "estimated_remaining_seconds": dynamic_est_remaining,
-                "rate_seconds_per_req": round(actual_rate, 2),
-                "percent": percent,
-                "disclaimer": "Estimate based on measured processing rate. Actual completion time may vary with network conditions."
-            })
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_idx = {
+                executor.submit(_process_batch, (idx, b)): idx
+                for idx, b in enumerate(batches)
+            }
+            for future in as_completed(future_to_idx):
+                idx, clean_texts, metadatas, ids, vectors = future.result()
+                indexed_results[idx] = (clean_texts, metadatas, ids, vectors)
+                completed_requests += 1
 
-    # Initialize Chroma and directly populate pre-computed batched vectors
-    vectorstore = Chroma(embedding_function=embeddings)
+                elapsed = time.time() - start_time
+                actual_rate = elapsed / completed_requests
+                remaining_requests = total_requests - completed_requests
+                dynamic_est_remaining = round(remaining_requests * actual_rate, 1)
+                percent = round((completed_requests / total_requests) * 100, 1)
+
+                if progress_callback:
+                    progress_callback({
+                        "stage": "embedding",
+                        "message": f"Generating embeddings... {completed_requests} of {total_requests} requests",
+                        "completed_requests": completed_requests,
+                        "total_requests": total_requests,
+                        "total_chunks": total_chunks,
+                        "chunk_size": request_batch_size,
+                        "elapsed_seconds": round(elapsed, 1),
+                        "estimated_remaining_seconds": dynamic_est_remaining,
+                        "rate_seconds_per_req": round(actual_rate, 2),
+                        "percent": percent,
+                        "disclaimer": "Estimate based on measured processing rate. Actual completion time may vary with network conditions."
+                    })
+    else:
+        for idx, b in enumerate(batches):
+            _, clean_texts, metadatas, ids, vectors = _process_batch((idx, b))
+            indexed_results[idx] = (clean_texts, metadatas, ids, vectors)
+            completed_requests += 1
+
+            elapsed = time.time() - start_time
+            actual_rate = elapsed / completed_requests
+            remaining_requests = total_requests - completed_requests
+            dynamic_est_remaining = round(remaining_requests * actual_rate, 1)
+            percent = round((completed_requests / total_requests) * 100, 1)
+
+            if progress_callback:
+                progress_callback({
+                    "stage": "embedding",
+                    "message": f"Generating embeddings... {completed_requests} of {total_requests} requests",
+                    "completed_requests": completed_requests,
+                    "total_requests": total_requests,
+                    "total_chunks": total_chunks,
+                    "chunk_size": request_batch_size,
+                    "elapsed_seconds": round(elapsed, 1),
+                    "estimated_remaining_seconds": dynamic_est_remaining,
+                    "rate_seconds_per_req": round(actual_rate, 2),
+                    "percent": percent,
+                    "disclaimer": "Estimate based on measured processing rate. Actual completion time may vary with network conditions."
+                })
+
+    all_texts = []
+    all_metas = []
+    all_ids = []
+    all_vectors = []
+
+    for item in indexed_results:
+        if item:
+            clean_texts, metadatas, ids, vectors = item
+            all_texts.extend(clean_texts)
+            all_metas.extend(metadatas)
+            all_ids.extend(ids)
+            all_vectors.extend(vectors)
+
+    # Initialize Chroma with a unique isolated collection name per upload
+    isolated_col_name = collection_name or f"rag_col_{uuid.uuid4().hex[:12]}"
+    vectorstore = Chroma(collection_name=isolated_col_name, embedding_function=embeddings)
     vectorstore._collection.upsert(
         ids=all_ids,
         embeddings=all_vectors,
@@ -121,11 +167,13 @@ def build_bm25_retriever(splits: List[Document]) -> BaseRetriever:
 
 def build_hybrid_retriever(
     splits: List[Document],
-    progress_callback: Optional[Callable[[dict], None]] = None
+    progress_callback: Optional[Callable[[dict], None]] = None,
+    collection_name: Optional[str] = None
 ) -> BaseRetriever:
     """Construct hybrid EnsembleRetriever fusing BM25 and Chroma via RRF."""
     from langchain_classic.retrievers.ensemble import EnsembleRetriever  
 
-    dense = build_semantic_retriever(splits, progress_callback=progress_callback)
+    dense = build_semantic_retriever(splits, progress_callback=progress_callback, collection_name=collection_name)
     sparse = build_bm25_retriever(splits)
     return EnsembleRetriever(retrievers=[sparse, dense], weights=[0.5, 0.5])
+

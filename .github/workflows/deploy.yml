@@ -28,10 +28,10 @@ permissions:
 
 env:
   # Master pipeline execution permission toggle
-  EXECUTE_PIPELINE: "true"
+  EXECUTE_PIPELINE: "false"
 
   # AWS platform deployment toggle
-  ENABLE_AWS: "true"
+  ENABLE_AWS: "false"
 
   # AWS cloud resource settings
   AWS_REGION: ap-southeast-2
@@ -53,9 +53,17 @@ jobs:
         id: gatekeeper
         run: |
           # Evaluate master pipeline permission
-          if [ "${{ env.EXECUTE_PIPELINE }}" = "true" ] || [ "${{ inputs.execute_pipeline }}" = "true" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.execute_pipeline }}" = "true" ]; then
+              echo "authorized=true" >> $GITHUB_OUTPUT
+              echo "Pipeline execution AUTHORIZED by manual trigger."
+            else
+              echo "authorized=false" >> $GITHUB_OUTPUT
+              echo "Pipeline execution BLOCKED by manual input."
+            fi
+          elif [ "${{ env.EXECUTE_PIPELINE }}" = "true" ]; then
             echo "authorized=true" >> $GITHUB_OUTPUT
-            echo "Pipeline execution AUTHORIZED."
+            echo "Pipeline execution AUTHORIZED by push."
           else
             echo "authorized=false" >> $GITHUB_OUTPUT
             echo "Pipeline execution BLOCKED (EXECUTE_PIPELINE is '${{ env.EXECUTE_PIPELINE }}')."

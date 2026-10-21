@@ -13,27 +13,27 @@ An enterprise-grade, conversational research assistant designed for deep academi
 
 ## Key Highlights & Core Capabilities
 
-* **Decoupled Architecture with Full Asynchronous Backend:**
-  - Headless FastAPI service managing document ingestion, agent orchestration, and real-time SSE token streaming.
-  - Fully asynchronous and non-blocking execution across all endpoints, database queries, and LangGraph nodes for maximum concurrency.
+* **Decoupled Architecture with Single-Worker Asynchronous Backend:**
+  - Headless FastAPI service running a dedicated single-worker Uvicorn process managing document ingestion, agent orchestration, and real-time SSE token streaming.
+  - Fully asynchronous and non-blocking execution across all endpoints, database queries, and LangGraph nodes for maximum concurrency and minimal memory footprint.
 * **Modular Domain Routers & Lifespan Management:**
   - Clean separation of API endpoints into dedicated subfolders (`routes/health`, `routes/documents`, `routes/chat`, `routes/sessions`).
   - Lifespan context manager (`@asynccontextmanager`) managing resource startup, singleton initialization, and graceful shutdown.
   - Automated rotating file logger (`.logs/app.log`) with size-based rotation and file-watcher filter rules.
 * **Context-Aware LLM Query Rewriting & Disambiguation:**
-  - 100% LLM-driven query reformulation that eliminates fragile regex keyword lists.
+  - 100% LLM-driven query reformulation with regex word boundary intent routing.
   - Automatically disambiguates pronouns (`it`, `they`, `this method`) and implicit follow-up inquiries (*"What were the parameter efficiency results?"*) into self-contained, keyword-rich academic queries using prior conversation history.
   - Functions at both pre-retrieval dispatch (ensuring the very first search pass hits the vector store with concrete paper/concept names) and in corrective recovery loops.
-* **Autonomous Self-RAG State Graph:**
+* **Autonomous Self-RAG State Graph & Groundedness Badge:**
   - Intelligent intent classification: separates conversational greetings and conceptual explanations from deep document inquiries and empirical fact-checking.
   - Corrective retrieval loop: dynamically filters irrelevant passages, reformulates unhelpful queries, and searches across both uploaded research papers and broader academic literature.
-  - Hallucination guard: verifies generated statements against source evidence before delivering final responses.
+  - Hallucination guard: validates generated statements against source evidence and surfaces real-time groundedness status (`Grounded in Document` / `Unverified Evidence`) directly to the UI.
 * **Scientific Claim Verification & Fact-Checking:**
   - Autonomous fact-checking pipeline designed for academic literature.
-  - Evaluates research claims against peer-reviewed papers and live web evidence, assigning clear verdicts (`SUPPORTED`, `REFUTED`, `PARTIALLY_SUPPORTED`, `INCONCLUSIVE`) with confidence scores and superseding citations.
-* **Persistent Conversational Memory with Dual-Profile Modes:**
+  - Evaluates research claims against peer-reviewed papers and live web evidence, assigning clear verdicts (`SUPPORTED`, `PARTIALLY_SUPPORTED`, `REFUTED`, `UNVERIFIED`) with confidence scores and superseding citations.
+* **Persistent Conversational Memory with Frictionless Username Profiles:**
   - State checkpointing backed by Upstash Redis REST storage for persistent cross-session memory (up to 20 conversation turns with 131k context window).
-  - **Dual Identity Modes:** Users can either specify a custom username to isolate, save, and reload their personal conversation history, or chat anonymously under a default profile.
+  - **Easy Username Loading:** Users can load, save, and sync their chat history simply by entering their username—no passwords required—or use isolated Guest Mode for temporary chats.
   - Left sidebar session drawer allows creating new research sessions, switching between chats, downloading transcripts, and clearing memory.
 * **Obsidian Black Major Theme & Polished UX:**
   - Premium dark obsidian aesthetic with glassmorphism cards, subtle glows, and clean typography.
@@ -48,13 +48,14 @@ An enterprise-grade, conversational research assistant designed for deep academi
   - High-dimensional dense vectors (768 dimensions) via OpenAI-compatible endpoint.
   - Asymmetric task prefixes (`search_query: ` for queries, `search_document: ` for documents) to optimize semantic search.
   - Server-Sent Events (SSE) streaming progress bar with real-time remaining-time calculations based on tested API latency (~1.07s/request baseline at ~0.93 req/s throughput).
-* **Multi-Tier PDF Ingestion Engine:**
+* **Multi-Tier PDF Ingestion Engine & Session-Isolated Chroma:**
   - Layout-aware extraction using `pdfplumber` to preserve tabular grids as Markdown tables, with fallbacks to `PyMuPDF` (`fitz`) and `pypdf`.
-  - Token-safe recursive chunking (500 chars, 100 overlap) and batching (10 chunks/request) to prevent physical model context overflow.
+  - Token-safe recursive chunking (1200 chars, 200 overlap) and batching (10 chunks/request) to prevent physical model context overflow.
+  - Session-isolated Chroma vectorstore collections preventing cross-user index interference.
   - Fuses dense vector embeddings (Nomic Embed Text v1.5) and sparse lexical search (BM25) via Reciprocal Rank Fusion.
 * **Optimized Multi-Stage Lightweight Docker Container:**
   - Two-stage architecture (`builder` -> `runner`) that strips build-essential toolchains, C-compilers, test packages, and pyc caches from the final image.
-  - Minimal production attack surface with an integrated `HEALTHCHECK` for automated AWS EC2 self-healing.
+  - Minimal production attack surface with single-worker execution and an integrated `HEALTHCHECK` for automated AWS EC2 self-healing.
 
 ---
 
@@ -355,7 +356,7 @@ The streaming chat endpoint delivers live Server-Sent Events with standard JSON 
 ### 1. Clone the Repository
 
 ```bash
-git clone git@github-personal:Aryanupadhyay23/conversational-research-rag.git
+git clone https://github.com/Aryanupadhyay23/conversational-research-rag.git
 cd conversational-research-rag
 ```
 
@@ -383,8 +384,8 @@ EMBEDDING_DIMENSION=768
 EMBEDDING_CHUNK_SIZE=10
 BASELINE_EMBEDDING_LATENCY=1.07
 BASELINE_EMBEDDING_THROUGHPUT=0.93
-CHUNK_SIZE=500
-CHUNK_OVERLAP=100
+CHUNK_SIZE=1200
+CHUNK_OVERLAP=200
 TAVILY_API_KEY="your_tavily_api_key"
 
 # Upstash Redis Configuration (LangGraph Checkpointer & User Session Storage)

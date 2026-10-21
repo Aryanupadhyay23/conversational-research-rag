@@ -1,4 +1,5 @@
-from typing import Optional
+from typing import Optional, Union, Callable
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, START, END
 from langchain_core.retrievers import BaseRetriever
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -32,7 +33,7 @@ from backend.graph.edges import (
 )
 
 def build_graph(
-    retriever: Optional[BaseRetriever] = None,
+    retriever: Optional[Union[BaseRetriever, Callable[[Optional[RunnableConfig]], Optional[BaseRetriever]]]] = None,
     checkpointer: Optional[BaseCheckpointSaver] = None,
     llm = None,
     eval_llm = None
@@ -51,15 +52,25 @@ def build_graph(
 
     workflow = StateGraph(GraphState)
 
+    def _resolve_retriever(config: Optional[RunnableConfig] = None) -> Optional[BaseRetriever]:
+        if callable(retriever):
+            try:
+                return retriever(config)
+            except Exception:
+                return None
+        return retriever
+
     # Async node bindings
     async def _router(state: GraphState) -> dict:
         return await router_node(state, eval_llm)
 
-    async def _agent(state: GraphState) -> dict:
-        return await agent_node(state, agent_llm, retriever, eval_llm=eval_llm)
+    async def _agent(state: GraphState, config: Optional[RunnableConfig] = None) -> dict:
+        active_r = _resolve_retriever(config)
+        return await agent_node(state, agent_llm, active_r, eval_llm=eval_llm)
 
-    async def _tools(state: GraphState) -> dict:
-        return await execute_tools_node(state, retriever)
+    async def _tools(state: GraphState, config: Optional[RunnableConfig] = None) -> dict:
+        active_r = _resolve_retriever(config)
+        return await execute_tools_node(state, active_r)
 
     async def _relevancy(state: GraphState) -> dict:
         return await relevancy_node(state, eval_llm)

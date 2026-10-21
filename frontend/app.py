@@ -79,8 +79,12 @@ active_session = st.session_state.sessions[active_session_id]
 # Main Header Banner
 render_header()
 
-# Check FastAPI Backend Connectivity
-is_backend_online, backend_msg = check_backend_health()
+# Check FastAPI Backend Connectivity (cached with 10s TTL to avoid blocking reruns)
+@st.cache_data(ttl=10)
+def cached_backend_health():
+    return check_backend_health()
+
+is_backend_online, backend_msg = cached_backend_health()
 if not is_backend_online:
     st.warning(
         f"⚠️ **FastAPI Backend Offline:** {backend_msg}\n\n"
@@ -115,7 +119,11 @@ with st.container():
                 total_requests_cnt = 0
 
                 try:
-                    for event in upload_documents_stream(uploaded_files):
+                    for event in upload_documents_stream(
+                        uploaded_files,
+                        session_id=st.session_state.current_session_id,
+                        username=st.session_state.username,
+                    ):
                         ev_type = event.get("type")
 
                         if ev_type == "progress":
@@ -232,13 +240,7 @@ if query_to_run:
 
             status_placeholder = st.empty()
             with status_placeholder.container():
-                st.markdown(
-                    "⚡ **Generating embeddings…**\n\n"
-                    "• **Progress:** 0 of 1 embedding request completed\n"
-                    "• **Estimated time remaining:** ~1.1 seconds\n\n"
-                    "<span style='font-size: 11px; color: #a1a1aa;'>*Estimate based on tested Nomic Embed Text v1.5 baseline (~1.07s/req). Network delays and server load can affect actual duration.*</span>",
-                    unsafe_allow_html=True
-                )
+                st.markdown("🔍 *Analyzing query and planning research retrieval...*")
 
             def stream_tokens():
                 for event in stream_chat(
@@ -249,20 +251,30 @@ if query_to_run:
                     ev_type = event.get("type")
                     if ev_type == "status":
                         node = event.get("node")
-                        if node == "retrieve":
+                        if node == "router":
                             with status_placeholder.container():
-                                st.markdown(
-                                    "⚡ **Progress:** 1 of 1 embedding request completed • *Searching vector index...*"
-                                )
-                        elif node == "grade_documents":
+                                st.markdown("🧭 *Routing query: evaluating claim and paper context...*")
+                        elif node in ("agent_node", "new_query_to_agent"):
+                            with status_placeholder.container():
+                                st.markdown("🤖 *Planning retrieval strategy...*")
+                        elif node in ("execute_tools", "retrieve"):
+                            with status_placeholder.container():
+                                st.markdown("📚 *Searching indexed paper passages & literature...*")
+                        elif node in ("relevancy_check", "grade_documents"):
                             with status_placeholder.container():
                                 st.markdown("🔍 *Evaluating retrieved paper passages for relevance...*")
+                        elif node == "query_rewrite":
+                            with status_placeholder.container():
+                                st.markdown("🔄 *Reformulating query with academic nomenclature...*")
+                        elif node in ("claim_verification", "claim_web_search", "claim_analysis"):
+                            with status_placeholder.container():
+                                st.markdown("⚖️ *Verifying factual claim against scientific literature...*")
                         elif node == "generate_answer":
                             with status_placeholder.container():
                                 st.markdown("✍️ *Synthesizing verified response with academic citations...*")
-                        elif node == "web_search":
+                        elif node == "format_answer":
                             with status_placeholder.container():
-                                st.markdown("🌐 *Augmenting with real-time academic web search...*")
+                                st.markdown("✨ *Compiling citations and evidence badges...*")
                     elif ev_type == "token":
                         status_placeholder.empty()
                         yield event.get("content", "")
@@ -271,7 +283,7 @@ if query_to_run:
                         meta["sources"] = event.get("sources")
                         meta["claim_analysis"] = event.get("claim_analysis")
                         metadata_dict = event.get("metadata", {})
-                        meta["groundedness"] = metadata_dict.get("groundedness")
+                        meta["groundedness"] = event.get("groundedness") or metadata_dict.get("groundedness")
                         meta["answer"] = event.get("answer", "")
                     elif ev_type == "error":
                         status_placeholder.empty()
@@ -314,4 +326,5 @@ if query_to_run:
                     "groundedness": meta.get("groundedness")
                 })
                 save_user_sessions_to_backend(st.session_state.username, st.session_state.sessions)
+
 

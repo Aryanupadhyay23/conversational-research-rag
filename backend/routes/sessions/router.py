@@ -1,5 +1,6 @@
 import logging
-from fastapi import APIRouter, Request
+from typing import Optional
+from fastapi import APIRouter, Request, Query, HTTPException
 
 from backend.services import get_agent_service
 from backend.database import (
@@ -28,12 +29,14 @@ async def save_user_sessions_endpoint(username: str, request: Request):
     """Save or update conversation sessions list for a user in Upstash Redis asynchronously."""
     clean_user = sanitize_username(username)
     payload = await request.json()
+
     if isinstance(payload, dict) and "sessions" in payload and isinstance(payload["sessions"], dict):
         sessions = payload["sessions"]
     elif isinstance(payload, dict):
         sessions = payload
     else:
         sessions = {}
+
     success = await asave_user_sessions_to_redis(clean_user, sessions)
     return {"status": "success" if success else "error", "username": clean_user}
 
@@ -57,8 +60,9 @@ async def clear_user_sessions_endpoint(username: str):
 
 
 @router.post("/session/{session_id}/clear")
-async def clear_session_memory(session_id: str):
+async def clear_session_memory(session_id: str, username: Optional[str] = Query(None)):
     """Clear conversational memory checkpointer for the specified session asynchronously."""
     service = get_agent_service()
-    await service.aclear_memory(session_id=session_id)
+    clean_user = sanitize_username(username) if username else None
+    await service.aclear_memory(session_id=session_id, username=clean_user)
     return {"status": "success", "session_id": session_id, "message": "Memory checkpointer cleared."}

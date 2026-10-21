@@ -1,3 +1,4 @@
+import html
 from typing import Dict, Any, Optional
 import streamlit as st
 
@@ -6,8 +7,8 @@ def render_verdict_badge(claim_analysis: Optional[Dict[str, Any]]):
     if not claim_analysis:
         return
 
-    verdict = claim_analysis.get("verdict", "UNVERIFIED")
-    confidence = claim_analysis.get("confidence", 0.8)
+    verdict = str(claim_analysis.get("verdict", "UNVERIFIED")).upper()
+    confidence = float(claim_analysis.get("confidence", 0.8))
 
     if verdict == "SUPPORTED":
         badge_class = "verdict-supported"
@@ -15,14 +16,18 @@ def render_verdict_badge(claim_analysis: Optional[Dict[str, Any]]):
     elif verdict == "REFUTED":
         badge_class = "verdict-refuted"
         verdict_label = "Contradicted by Literature"
+    elif verdict == "PARTIALLY_SUPPORTED":
+        badge_class = "verdict-partial"
+        verdict_label = "Partially Supported"
     else:
         badge_class = "verdict-inconclusive"
-        verdict_label = "Inconclusive Evidence"
+        verdict_label = "Inconclusive / Unverified Evidence"
 
+    escaped_label = html.escape(verdict_label)
     st.markdown(
         f"""
         <div class="verdict-badge {badge_class}">
-            <span>{verdict_label}</span>
+            <span>{escaped_label}</span>
             <span style="opacity: 0.8; margin-left: 8px; font-weight: 400;">({confidence:.0%} confidence)</span>
         </div>
         """,
@@ -34,10 +39,11 @@ def render_verdict_badge(claim_analysis: Optional[Dict[str, Any]]):
         with st.expander("Referenced Counter-Evidence & Literature", expanded=False):
             for p in superseding:
                 title = p.get("title", "Research Paper")
-                link = p.get("arxiv_id_or_url")
+                link = p.get("arxiv_id_or_url", "")
                 finding = p.get("finding", "")
-                if link:
-                    st.markdown(f"- **[{title}]({link})**\n  _{finding}_")
+                safe_link = link if str(link).startswith(("http://", "https://")) else None
+                if safe_link:
+                    st.markdown(f"- **[{title}]({safe_link})**\n  _{finding}_")
                 else:
                     st.markdown(f"- **{title}**\n  _{finding}_")
 
@@ -47,8 +53,8 @@ def render_grounding_badge(groundedness: Optional[Dict[str, Any]]):
         return
 
     is_grounded = groundedness.get("is_grounded", True)
-    confidence = groundedness.get("confidence", "HIGH")
-    reason = groundedness.get("reason", "")
+    confidence = html.escape(str(groundedness.get("confidence", "HIGH")))
+    reason = html.escape(str(groundedness.get("reason", "")))
 
     if is_grounded:
         badge_class = "grounding-badge-grounded"
@@ -59,12 +65,14 @@ def render_grounding_badge(groundedness: Optional[Dict[str, Any]]):
         icon = "⚠️"
         label = "Generalized Synthesis"
 
+    escaped_label = html.escape(label)
     st.markdown(
         f"""
         <div class="grounding-badge {badge_class}" title="{reason}">
-            <span>{icon} {label}</span>
+            <span>{icon} {escaped_label}</span>
             <span style="opacity: 0.8; margin-left: 6px; font-weight: 400;">({confidence} confidence)</span>
         </div>
         """,
         unsafe_allow_html=True
     )
+

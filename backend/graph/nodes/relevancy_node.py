@@ -53,7 +53,8 @@ async def relevancy_node(state: GraphState, eval_llm) -> dict:
         logs.append(f"[Relevancy Check] No documents found to evaluate for query '{current_query}'.")
         return {"documents": [], "is_relevant": False, "reflection_logs": logs}
 
-    candidates = docs[:4]
+    # Sort/prioritize: ensure local vectorstore docs are checked alongside web sources
+    candidates = docs[:min(len(docs), 6)]
     
     # Run concurrent grading across candidate documents for minimal latency
     try:

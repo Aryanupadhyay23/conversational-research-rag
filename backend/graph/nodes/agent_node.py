@@ -8,6 +8,8 @@ from backend.tools.tools import search_tavily_async, execute_retriever
 from backend.config import MAX_CHAT_HISTORY_MESSAGES, MAX_RETRIEVAL_ATTEMPTS
 from backend.graph.nodes.rewrite_node import rewrite_query_with_context
 
+from backend.utils.helpers import filter_clean_chat_history
+
 logger = logging.getLogger(__name__)
 
 async def agent_node(state: GraphState, agent_llm, retriever, eval_llm=None) -> dict:
@@ -16,12 +18,13 @@ async def agent_node(state: GraphState, agent_llm, retriever, eval_llm=None) -> 
     messages = list(state.get("messages", []))
     logs = list(state.get("reflection_logs", []))
     retrieval_attempts = state.get("retrieval_attempts", 0)
+    needs_retrieval = state.get("needs_retrieval", False)
 
-    # Native LangChain message filtering (excluding current turn's message)
-    history = filter_messages(messages, include_types=["human", "ai"])[:-1][-MAX_CHAT_HISTORY_MESSAGES:]
+    # Filter conversation history cleanly without orchestration messages
+    history = filter_clean_chat_history(messages, current_question=state.get("question", ""), max_messages=MAX_CHAT_HISTORY_MESSAGES)
 
     # On first retrieval pass: Use LLM to contextualize & reformulate query using chat history
-    if retrieval_attempts == 0 and history and eval_llm:
+    if retrieval_attempts == 0 and not needs_retrieval and history and eval_llm:
         rewritten_q, rationale = await rewrite_query_with_context(current_query, history, eval_llm)
         if rewritten_q and rewritten_q.strip():
             logs.append(
@@ -30,19 +33,19 @@ async def agent_node(state: GraphState, agent_llm, retriever, eval_llm=None) -> 
             current_query = rewritten_q
 
     ai_msg = None
-    # On first retrieval pass, dispatch tools automatically with the contextualized query
-    if retrieval_attempts == 0:
+    # Dispatch tools automatically on first pass OR when rewritten query requests new retrieval
+    if retrieval_attempts == 0 or needs_retrieval:
         tool_calls = []
         if retriever is not None:
             tool_calls.append({
                 "name": "retrieve_from_vectorstore",
                 "args": {"query": current_query},
-                "id": "call_vec_0"
+                "id": f"call_vec_{retrieval_attempts}"
             })
         tool_calls.append({
             "name": "web_search",
             "args": {"query": current_query},
-            "id": "call_web_0"
+            "id": f"call_web_{retrieval_attempts}"
         })
         ai_msg = AIMessage(content="Dispatching retrieval tools.", tool_calls=tool_calls)
     else:
@@ -56,6 +59,7 @@ async def agent_node(state: GraphState, agent_llm, retriever, eval_llm=None) -> 
     logs.append(f"[Agent Node] Evaluated state. Tool calls: {tool_call_names}")
     return {
         "current_query": current_query,
+        "needs_retrieval": False,
         "messages": [ai_msg],
         "reflection_logs": logs
     }

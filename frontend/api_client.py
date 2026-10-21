@@ -28,7 +28,12 @@ def check_backend_health(base_url: Optional[str] = None) -> Tuple[bool, str]:
     except Exception as e:
         return False, f"Backend health check error: {e}"
 
-def upload_documents(uploaded_files: list, base_url: Optional[str] = None) -> dict:
+def upload_documents(
+    uploaded_files: list,
+    session_id: Optional[str] = None,
+    username: Optional[str] = None,
+    base_url: Optional[str] = None
+) -> dict:
     """
     Upload PDF files to FastAPI /upload endpoint for layout extraction and indexing.
     """
@@ -38,10 +43,17 @@ def upload_documents(uploaded_files: list, base_url: Optional[str] = None) -> di
         content = f.getvalue() if hasattr(f, "getvalue") else f.read()
         files.append(("files", (f.name, content, "application/pdf")))
 
+    data = {}
+    if session_id:
+        data["session_id"] = session_id
+    if username:
+        data["username"] = username
+
     try:
         resp = requests.post(
             f"{url}/upload",
             files=files,
+            data=data,
             timeout=300.0
         )
         resp.raise_for_status()
@@ -57,6 +69,8 @@ def upload_documents(uploaded_files: list, base_url: Optional[str] = None) -> di
 
 def upload_documents_stream(
     uploaded_files: list,
+    session_id: Optional[str] = None,
+    username: Optional[str] = None,
     base_url: Optional[str] = None
 ) -> Generator[Dict[str, Any], None, None]:
     """
@@ -69,10 +83,17 @@ def upload_documents_stream(
         content = f.getvalue() if hasattr(f, "getvalue") else f.read()
         files.append(("files", (f.name, content, "application/pdf")))
 
+    data = {}
+    if session_id:
+        data["session_id"] = session_id
+    if username:
+        data["username"] = username
+
     try:
         with requests.post(
             f"{url}/upload/stream",
             files=files,
+            data=data,
             stream=True,
             timeout=300.0
         ) as resp:
@@ -149,52 +170,84 @@ def stream_chat(
             "error": error_detail or f"Failed to communicate with FastAPI backend at {url}: {e}"
         }
 
-def fetch_user_sessions(username: str, base_url: Optional[str] = None) -> Dict[str, Any]:
+def fetch_user_sessions(
+    username: str,
+    base_url: Optional[str] = None
+) -> Dict[str, Any]:
     """Fetch stored conversation sessions for a given user from FastAPI backend / Upstash Redis."""
     url = (base_url or get_backend_url()).rstrip("/")
     try:
-        resp = requests.get(f"{url}/user/{username}/sessions", timeout=5.0)
+        resp = requests.get(
+            f"{url}/user/{username}/sessions",
+            timeout=5.0
+        )
         if resp.status_code == 200:
             return resp.json().get("sessions", {})
     except Exception as e:
         logger.debug(f"Failed to fetch sessions for user {username}: {e}")
     return {}
 
-def save_user_sessions_to_backend(username: str, sessions: Dict[str, Any], base_url: Optional[str] = None) -> bool:
+def save_user_sessions_to_backend(
+    username: str,
+    sessions: Dict[str, Any],
+    base_url: Optional[str] = None
+) -> bool:
     """Save conversation sessions dictionary for a user to FastAPI backend / Upstash Redis."""
     url = (base_url or get_backend_url()).rstrip("/")
     try:
-        resp = requests.post(f"{url}/user/{username}/sessions", json={"sessions": sessions}, timeout=5.0)
+        resp = requests.post(
+            f"{url}/user/{username}/sessions",
+            json={"sessions": sessions},
+            timeout=5.0
+        )
         return resp.status_code == 200
     except Exception as e:
         logger.debug(f"Failed to save sessions for user {username}: {e}")
         return False
 
-def delete_session_from_backend(username: str, session_id: str, base_url: Optional[str] = None) -> bool:
+def delete_session_from_backend(
+    username: str,
+    session_id: str,
+    base_url: Optional[str] = None
+) -> bool:
     """Delete a single session and its checkpointer memory from backend / Upstash Redis."""
     url = (base_url or get_backend_url()).rstrip("/")
     try:
-        resp = requests.delete(f"{url}/user/{username}/session/{session_id}", timeout=5.0)
+        resp = requests.delete(
+            f"{url}/user/{username}/session/{session_id}",
+            timeout=5.0
+        )
         return resp.status_code == 200
     except Exception as e:
         logger.debug(f"Failed to delete session {session_id} for user {username}: {e}")
         return False
 
-def clear_user_history_on_backend(username: str, base_url: Optional[str] = None) -> bool:
+def clear_user_history_on_backend(
+    username: str,
+    base_url: Optional[str] = None
+) -> bool:
     """Clear all conversation sessions and checkpointer memory for a user on backend / Upstash Redis."""
     url = (base_url or get_backend_url()).rstrip("/")
     try:
-        resp = requests.post(f"{url}/user/{username}/clear", timeout=5.0)
+        resp = requests.post(
+            f"{url}/user/{username}/clear",
+            timeout=5.0
+        )
         return resp.status_code == 200
     except Exception as e:
         logger.debug(f"Failed to clear all sessions for user {username}: {e}")
         return False
 
-def clear_session_memory(session_id: str, base_url: Optional[str] = None) -> bool:
+def clear_session_memory(
+    session_id: str,
+    username: Optional[str] = None,
+    base_url: Optional[str] = None
+) -> bool:
     """Clear conversational memory checkpointer on the FastAPI backend."""
     url = (base_url or get_backend_url()).rstrip("/")
+    params = {"username": username} if username else {}
     try:
-        resp = requests.post(f"{url}/session/{session_id}/clear", timeout=5.0)
+        resp = requests.post(f"{url}/session/{session_id}/clear", params=params, timeout=5.0)
         return resp.status_code == 200
     except Exception as e:
         logger.warning(f"Failed to clear backend memory for {session_id}: {e}")
@@ -202,11 +255,16 @@ def clear_session_memory(session_id: str, base_url: Optional[str] = None) -> boo
 
 
 def compute_files_hash(files: list) -> str:
-    """Compute an MD5 hash of uploaded files to detect changes."""
+    """Compute an MD5 hash of uploaded files including content samples to detect edits of identical size."""
     hasher = hashlib.md5()
     for f in files:
         hasher.update(f.name.encode())
-        hasher.update(str(getattr(f, "size", len(f.getvalue() if hasattr(f, "getvalue") else b""))).encode())
+        raw = f.getvalue() if hasattr(f, "getvalue") else (f.read() if hasattr(f, "read") else b"")
+        hasher.update(str(len(raw)).encode())
+        hasher.update(raw[:4096])
+        hasher.update(raw[-4096:])
+        if hasattr(f, "seek"):
+            f.seek(0)
     return hasher.hexdigest()
 
 def render_pdf_page_image(pdf_bytes: bytes, page_idx: int) -> Optional[bytes]:

@@ -7,6 +7,8 @@ from backend.schemas.rewrite import QueryRewrite
 from backend.prompts.rewrite import query_rewrite_prompt
 from backend.config import MAX_CHAT_HISTORY_MESSAGES
 
+from backend.utils.helpers import filter_clean_chat_history
+
 logger = logging.getLogger(__name__)
 
 async def rewrite_query_with_context(
@@ -57,8 +59,8 @@ async def query_rewrite_node(state: GraphState, eval_llm) -> dict:
     rewrite_count = state.get("rewrite_count", 0) + 1
     logs = list(state.get("reflection_logs", []))
 
-    # Extract conversation history excluding current turn's message
-    history = filter_messages(messages, include_types=["human", "ai"])[:-1][-MAX_CHAT_HISTORY_MESSAGES:]
+    # Extract conversation history cleanly without orchestration messages
+    history = filter_clean_chat_history(messages, current_question=state.get("question", ""), max_messages=MAX_CHAT_HISTORY_MESSAGES)
 
     new_query, rationale = await rewrite_query_with_context(current_query, history, eval_llm)
 
@@ -70,12 +72,13 @@ async def query_rewrite_node(state: GraphState, eval_llm) -> dict:
     }
 
 async def new_query_node(state: GraphState) -> dict:
-    """M: New Query → Agent Node - Sets up state to loop back to Agent Node."""
+    """M: New Query → Agent Node - Sets up state to loop back to Agent Node with retrieval active."""
     new_q = state.get("current_query", state["question"])
     logs = list(state.get("reflection_logs", []))
     logs.append(f"[New Query → Agent Node] Resubmitting rewritten query: '{new_q}'.")
     return {
-        "messages": [HumanMessage(content=f"Searching again with reformulated query: {new_q}")],
+        "needs_retrieval": True,
         "reflection_logs": logs
     }
+
 

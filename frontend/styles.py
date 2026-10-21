@@ -302,6 +302,11 @@ def get_black_major_theme_css() -> str:
         border: 1px solid rgba(245, 158, 11, 0.4);
         color: #fbbf24;
     }
+    .verdict-partial {
+        background: rgba(59, 130, 246, 0.12);
+        border: 1px solid rgba(59, 130, 246, 0.4);
+        color: #60a5fa;
+    }
 
     /* Source Citation Cards */
     .citation-card {

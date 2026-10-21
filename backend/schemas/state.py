@@ -16,6 +16,8 @@ class GraphState(TypedDict):
     claim_analysis: Optional[Dict[str, Any]]
     is_relevant: bool
     generation: str
+    groundedness: Optional[Dict[str, Any]]
+    needs_retrieval: bool
     formatted_response: Optional[Dict[str, Any]]
     metadata: Dict[str, Any]
     reflection_logs: List[str]
