@@ -1,16 +1,35 @@
 import re
 import streamlit as st
 
+
+def _strip_html_tags(text: str) -> str:
+    """
+    Strip dangerous executable HTML elements and raw HTML markup from text.
+    Preserves text contents of non-script tags while eliminating tags and malicious scripts.
+    """
+    if not text:
+        return ""
+    # 1. Completely remove script, style, iframe, object, embed tags and their contents
+    text = re.sub(r"<(script|style|iframe|object|embed)[\s\S]*?</\1>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"<(script|style|iframe|object|embed)[^>]*/>", "", text, flags=re.IGNORECASE)
+    # 2. Strip remaining opening, closing, and self-closing HTML tags
+    text = re.sub(r"</?[a-zA-Z][a-zA-Z0-9:-]*(?:\s+[^<>]*)*/?>", "", text)
+    return text
+
+
 def normalize_markdown_and_latex(text: str) -> str:
     """
-    Standardize Markdown and LaTeX mathematical notations for rendering in Streamlit (KaTeX).
+    Standardize Markdown and LaTeX mathematical notations for rendering in Streamlit (KaTeX)
+    while safely stripping raw HTML tags outside of code blocks and math environments.
 
     Handles:
     - Normalizing LaTeX display delimiters: \\[ ... \\] -> $$ ... $$
     - Normalizing LaTeX inline delimiters: \\( ... \\) -> $ ... $
     - Wrapping standalone LaTeX environments (align, equation, matrix, cases, etc.) in $$ ... $$
     - Cleaning internal whitespace in inline math (e.g. '$ \\mu = 0 $' -> '$\\mu = 0$')
-    - Protecting code blocks (``` and `) from delimiter replacement
+    - Protecting code blocks (``` and `) from delimiter replacement and tag stripping
+    - Protecting display ($$...$$) and inline ($...$) math from HTML stripping
+    - Stripping dangerous script/style tags and raw HTML outside code/math blocks
     - Protecting escaped dollar signs (\\$50)
     - Formatting Markdown tables with appropriate spacing
     """
@@ -66,13 +85,10 @@ def normalize_markdown_and_latex(text: str) -> str:
 
     text = re.sub(rf"(\\begin\{{(?:{env_pattern})\}}[\s\S]*?\\end\{{(?:{env_pattern})\}})", wrap_env, text)
 
-    # Restore display math with clean formatting
-    for idx, block in enumerate(display_blocks):
-        content = block[2:-2].strip()
-        formatted = f"\n\n$$\n{content}\n$$\n\n"
-        text = text.replace(f"@@DISPLAY_MATH_{idx}@@", formatted)
+    # Protect newly wrapped display math blocks
+    text = re.sub(r"\$\$[\s\S]*?\$\$", save_display_math, text)
 
-    # 6. Fix inline math with leading/trailing spaces: '$ \mu = 0 $' -> '$\mu = 0$'
+    # 6. Fix and protect inline math with leading/trailing spaces: '$ \mu = 0 $' -> '$\mu = 0$'
     def clean_inline_math(match):
         inner = match.group(1).strip()
         return f"${inner}$"
@@ -81,7 +97,17 @@ def normalize_markdown_and_latex(text: str) -> str:
     text = re.sub(r"(?<!\$)\$(?!\$)\s+([^$\n]+?[\\_\^=\+\-\*\/\<\>][^$\n]*?)\$(?!\$)", clean_inline_math, text)
     text = re.sub(r"(?<!\$)\$(?!\$)([^$\n]+?[\\_\^=\+\-\*\/\<\>][^$\n]*?)\s+\$(?!\$)", clean_inline_math, text)
 
-    # 7. Ensure markdown tables have empty line before them
+    inline_math_blocks = []
+    def save_inline_math(match):
+        inline_math_blocks.append(match.group(0))
+        return f"@@INLINE_MATH_{len(inline_math_blocks)-1}@@"
+
+    text = re.sub(r"(?<!\$)\$(?!\$)[^$\n]+?(?<!\$)\$(?!\$)", save_inline_math, text)
+
+    # 7. Strip raw HTML tags on text outside of code fences and math blocks
+    text = _strip_html_tags(text)
+
+    # 8. Ensure markdown tables have empty line before them
     lines = text.split("\n")
     new_lines = []
     for i, line in enumerate(lines):
@@ -92,19 +118,30 @@ def normalize_markdown_and_latex(text: str) -> str:
         new_lines.append(line)
     text = "\n".join(new_lines)
 
-    # 8. Clean up excess newlines
+    # 9. Clean up excess newlines
     text = re.sub(r"\n{3,}", "\n\n", text)
 
-    # 9. Restore code blocks and escaped dollars
-    for idx, block in enumerate(fenced_blocks):
-        text = text.replace(f"@@FENCED_CODE_{idx}@@", block)
+    # 10. Restore math, code blocks, and escaped dollars in reverse order
+    for idx, block in enumerate(inline_math_blocks):
+        text = text.replace(f"@@INLINE_MATH_{idx}@@", block)
+
+    for idx, block in enumerate(display_blocks):
+        content = block[2:-2].strip()
+        formatted = f"\n\n$$\n{content}\n$$\n\n"
+        text = text.replace(f"@@DISPLAY_MATH_{idx}@@", formatted)
+
     for idx, block in enumerate(inline_blocks):
         text = text.replace(f"@@INLINE_CODE_{idx}@@", block)
+
+    for idx, block in enumerate(fenced_blocks):
+        text = text.replace(f"@@FENCED_CODE_{idx}@@", block)
+
     text = text.replace("@@ESCAPED_DOLLAR@@", r"\$")
 
     return text.strip()
 
+
 def render_formatted_markdown(content: str):
-    """Render markdown with normalized LaTeX math and table formatting."""
+    """Render markdown with normalized LaTeX math and table formatting safely without raw HTML injection."""
     normalized = normalize_markdown_and_latex(content)
-    st.markdown(normalized, unsafe_allow_html=True)
+    st.markdown(normalized, unsafe_allow_html=False)

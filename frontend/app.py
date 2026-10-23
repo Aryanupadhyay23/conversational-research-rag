@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from frontend.api_client import (
     check_backend_health,
+    check_document_status,
     upload_documents,
     upload_documents_stream,
     stream_chat,
@@ -60,10 +61,10 @@ if "sessions" not in st.session_state:
         st.session_state.sessions = {init_id: fresh_session}
     st.session_state.current_session_id = init_id
 
-if "uploaded_hash" not in st.session_state:
-    st.session_state.uploaded_hash = None
-if "pdf_bytes_map" not in st.session_state:
-    st.session_state.pdf_bytes_map = {}
+if "uploaded_hashes" not in st.session_state:
+    st.session_state.uploaded_hashes = {}
+if "pdf_bytes_maps" not in st.session_state:
+    st.session_state.pdf_bytes_maps = {}
 
 # Sidebar Conversation History Navigation
 active_session_id = render_session_sidebar()
@@ -74,6 +75,7 @@ if active_session_id not in st.session_state.sessions:
         "created_at": datetime.datetime.now().strftime("%b %d, %H:%M")
     }
 active_session = st.session_state.sessions[active_session_id]
+document_state_key = f"{st.session_state.username}:{active_session_id}"
 
 
 # Main Header Banner
@@ -97,18 +99,30 @@ with st.container():
         "Upload Research Papers (Multiple PDF Support)",
         type=["pdf"],
         accept_multiple_files=True,
-        help="Upload one or multiple research papers to query and cross-examine."
+        help="Upload one or multiple research papers to query and cross-examine.",
+        key=f"pdf_uploader_{document_state_key}",
     )
 
     if uploaded_files:
         current_hash = compute_files_hash(uploaded_files)
         # Cache raw bytes for interactive visual page rendering and citation previews
-        st.session_state.pdf_bytes_map = {
+        st.session_state.pdf_bytes_maps[document_state_key] = {
             f.name: (f.getvalue() if hasattr(f, "getvalue") else f.read())
             for f in uploaded_files
         }
+        indexed_hash = st.session_state.uploaded_hashes.get(document_state_key)
 
-        if st.session_state.uploaded_hash != current_hash:
+        # If files are uploaded but backend reports no active retriever for thread, clear hash to trigger auto re-indexing
+        if is_backend_online and indexed_hash:
+            has_retriever = check_document_status(
+                username=st.session_state.username,
+                session_id=st.session_state.current_session_id
+            )
+            if not has_retriever:
+                st.session_state.uploaded_hashes.pop(document_state_key, None)
+                indexed_hash = None
+
+        if indexed_hash != current_hash:
             if not is_backend_online:
                 st.error("Cannot upload documents: FastAPI backend is unreachable. Start the backend first.")
             else:
@@ -179,7 +193,7 @@ with st.container():
                         elif ev_type == "completed":
                             indexing_successful = True
                             completed_chunks = event.get("chunks_indexed", 0)
-                            st.session_state.uploaded_hash = current_hash
+                            st.session_state.uploaded_hashes[document_state_key] = current_hash
                             with progress_container.container():
                                 st.progress(1.0)
                                 st.success(
@@ -208,7 +222,10 @@ current_messages = active_session.get("messages", [])
 if not current_messages:
     render_welcome_screen()
 else:
-    render_chat_history(current_messages, pdf_bytes_map=st.session_state.get("pdf_bytes_map"))
+    render_chat_history(
+        current_messages,
+        pdf_bytes_map=st.session_state.pdf_bytes_maps.get(document_state_key),
+    )
 
 # Chat Input Bar
 query_to_run = st.chat_input("Ask a research question or verify an academic claim...")
@@ -235,7 +252,8 @@ if query_to_run:
                 "sources": None,
                 "claim_analysis": None,
                 "groundedness": None,
-                "answer": ""
+                "answer": "",
+                "completed": False,
             }
 
             status_placeholder = st.empty()
@@ -285,6 +303,7 @@ if query_to_run:
                         metadata_dict = event.get("metadata", {})
                         meta["groundedness"] = event.get("groundedness") or metadata_dict.get("groundedness")
                         meta["answer"] = event.get("answer", "")
+                        meta["completed"] = True
                     elif ev_type == "error":
                         status_placeholder.empty()
                         st.error(f"Backend Streaming Error: {event.get('error')}")
@@ -296,7 +315,7 @@ if query_to_run:
                     full_response = meta["answer"]
                 
                 # Re-render with full LaTeX normalization and markdown styling
-                if full_response:
+                if full_response and meta["completed"]:
                     response_placeholder.empty()
                     with response_placeholder.container():
                         render_formatted_markdown(full_response)
@@ -314,10 +333,13 @@ if query_to_run:
 
             # Render source citations with quote highlights and interactive page previews
             if meta.get("sources"):
-                render_sources_section(meta["sources"], pdf_bytes_map=st.session_state.get("pdf_bytes_map"))
+                render_sources_section(
+                    meta["sources"],
+                    pdf_bytes_map=st.session_state.pdf_bytes_maps.get(document_state_key),
+                )
 
             # Persist assistant turn to active session messages & Upstash Redis
-            if full_response:
+            if full_response and meta["completed"]:
                 active_session["messages"].append({
                     "role": "assistant",
                     "content": full_response,

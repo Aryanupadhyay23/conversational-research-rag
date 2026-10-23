@@ -26,8 +26,8 @@ async def router_node(state: GraphState, eval_llm) -> dict:
         decision = "verify_claim"
         reason = "Claim verification keyword detected."
 
-    # Fast-path 3: Paper specific queries
-    elif any(kw in q_clean for kw in ["in this paper", "the paper", "uploaded pdf", "in the document", "the author", "authors conclude", "section", "abstract", "proposed", "benchmark", "loss function", "architecture", "dataset", "table"]):
+    # Fast-path 3: Paper specific queries (word-boundary regex for single words to avoid 'suitable' or 'intersection')
+    elif any(kw in q_clean for kw in ["in this paper", "the paper", "uploaded pdf", "in the document", "the author", "authors conclude", "loss function"]) or re.search(r"\b(section|abstract|proposed|benchmark|architecture|dataset|table)\b", q_clean):
         decision = "retrieve"
         reason = "Document/paper reference detected."
 

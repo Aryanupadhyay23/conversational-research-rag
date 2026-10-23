@@ -7,11 +7,40 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.retrievers import BaseRetriever
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
+from collections import OrderedDict
+from backend.config import MAX_STORED_RETRIEVERS
 from backend.database import get_checkpointer
 from backend.graph.workflow import build_graph
 from backend.utils.helpers import run_async_safe, extract_sources_metadata
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_vectorstores(retriever: Any) -> List[Any]:
+    """Recursively extract underlying Chroma vectorstores from retrievers or ensemble retrievers."""
+    stores = []
+    if hasattr(retriever, "vectorstore"):
+        stores.append(retriever.vectorstore)
+    if hasattr(retriever, "retrievers"):
+        for r in getattr(retriever, "retrievers", []):
+            if hasattr(r, "vectorstore"):
+                stores.append(r.vectorstore)
+    return stores
+
+
+def _delete_retriever_collection(retriever: BaseRetriever):
+    """Delete the underlying Chroma collection associated with a retriever."""
+    for vs in _extract_vectorstores(retriever):
+        try:
+            col_name = getattr(getattr(vs, "_collection", None), "name", None)
+            if hasattr(vs, "delete_collection"):
+                vs.delete_collection()
+                logger.info("Deleted Chroma collection '%s'", col_name or "unknown")
+            elif hasattr(vs, "_client") and col_name:
+                vs._client.delete_collection(col_name)
+                logger.info("Deleted Chroma collection '%s' via client", col_name)
+        except Exception as e:
+            logger.warning("Could not delete Chroma collection: %s", e)
 
 @dataclass
 class QueryResult:
@@ -41,10 +70,52 @@ class AgentService:
         checkpointer: Optional[BaseCheckpointSaver] = None
     ):
         self.retriever = retriever
-        self.retrievers: Dict[str, BaseRetriever] = {}
+        self.retrievers: OrderedDict[str, BaseRetriever] = OrderedDict()
+        self.max_stored_retrievers = MAX_STORED_RETRIEVERS
         self.checkpointer = checkpointer or get_checkpointer()
         self.graph = None
         self._compile()
+
+    def _cleanup_retriever_if_unreferenced(self, retriever: Optional[BaseRetriever], exclude_keys: Optional[List[str]] = None):
+        """Delete Chroma collection of retriever if it is not referenced by any remaining key or global."""
+        if retriever is None or retriever is self.retriever:
+            return
+        exclude = set(exclude_keys or [])
+        for k, r in self.retrievers.items():
+            if k not in exclude and r is retriever:
+                return
+        _delete_retriever_collection(retriever)
+
+    def resolve_retriever(
+        self,
+        thread_id: Optional[str] = None,
+        username: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> Optional[BaseRetriever]:
+        """
+        Resolve the retriever for one conversation thread.
+
+        Uploaded documents belong to their exact thread key. Falling back to a
+        bare session ID or username would make documents from one chat available
+        in another chat.
+        """
+        exact_thread = thread_id or (f"{username}:{session_id}" if username and session_id else None)
+        if exact_thread and exact_thread in self.retrievers:
+            self.retrievers.move_to_end(exact_thread)
+            return self.retrievers[exact_thread]
+
+        # A global retriever is only used when one was deliberately supplied to
+        # the service; uploaded documents are never stored globally.
+        return self.retriever
+
+    def has_retriever(
+        self,
+        thread_id: Optional[str] = None,
+        username: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Check whether a retriever resolves for the given thread/session/user."""
+        return self.resolve_retriever(thread_id=thread_id, username=username, session_id=session_id) is not None
 
     def _compile(self, custom_retriever: Optional[BaseRetriever] = None):
         """Compile the StateGraph with dynamic per-session retriever resolution."""
@@ -55,14 +126,7 @@ class AgentService:
                 configurable = config.get("configurable", {})
                 thread_id = configurable.get("thread_id")
                 if thread_id:
-                    if thread_id in self.retrievers:
-                        return self.retrievers[thread_id]
-                    if ":" in thread_id:
-                        user, sess = thread_id.split(":", 1)
-                        if sess in self.retrievers:
-                            return self.retrievers[sess]
-                        if user in self.retrievers:
-                            return self.retrievers[user]
+                    return self.resolve_retriever(thread_id=thread_id)
             return self.retriever
 
         self.graph = build_graph(
@@ -71,17 +135,68 @@ class AgentService:
         )
 
     def set_retriever(self, retriever: BaseRetriever, session_id: Optional[str] = None):
-        """Update retriever for a specific session or globally."""
+        """Update retriever for a specific session or globally, evicting/cleaning previous collection."""
         if session_id:
+            old_retriever = self.retrievers.get(session_id)
             self.retrievers[session_id] = retriever
+            self.retrievers.move_to_end(session_id)
+            if old_retriever is not None and old_retriever is not retriever:
+                self._cleanup_retriever_if_unreferenced(old_retriever)
+
+            # Enforce max stored retrievers cap (LRU eviction)
+            while len(self.retrievers) > self.max_stored_retrievers:
+                evicted_key, evicted_retriever = self.retrievers.popitem(last=False)
+                logger.info("Evicted LRU retriever for key '%s'", evicted_key)
+                if evicted_retriever is not retriever:
+                    self._cleanup_retriever_if_unreferenced(evicted_retriever)
         else:
+            old_retriever = self.retriever
             self.retriever = retriever
+            if old_retriever is not None and old_retriever is not retriever:
+                self._cleanup_retriever_if_unreferenced(old_retriever)
 
     def get_retriever(self, session_id: Optional[str] = None) -> Optional[BaseRetriever]:
         """Get retriever for session or fallback to default."""
-        if session_id and session_id in self.retrievers:
-            return self.retrievers[session_id]
+        if session_id:
+            return self.resolve_retriever(thread_id=session_id)
         return self.retriever
+
+    def remove_retriever(self, key: str):
+        """Remove a retriever by key and delete its Chroma collection if unreferenced."""
+        if key in self.retrievers:
+            old = self.retrievers.pop(key)
+            self._cleanup_retriever_if_unreferenced(old)
+            logger.info("Removed retriever for key '%s'", key)
+
+    def remove_session_retriever(self, session_id: str, username: Optional[str] = None):
+        """Remove retriever for a specific session and delete its collection if unreferenced."""
+        if username:
+            prefix = f"{username}:"
+            keys_to_remove = [session_id if session_id.startswith(prefix) else f"{prefix}{session_id}"]
+        else:
+            keys_to_remove = [session_id]
+
+        old_retrievers = []
+        for k in keys_to_remove:
+            if k in self.retrievers:
+                old_retrievers.append(self.retrievers.pop(k))
+
+        for r in old_retrievers:
+            self._cleanup_retriever_if_unreferenced(r)
+
+    def clear_user_retrievers(self, username: str):
+        """Remove all retrievers for a user's conversation threads."""
+        keys_to_remove = [
+            k for k in list(self.retrievers.keys())
+            if k.startswith(f"{username}:")
+        ]
+        removed_retrievers = []
+        for k in keys_to_remove:
+            removed_retrievers.append(self.retrievers.pop(k))
+
+        for r in removed_retrievers:
+            self._cleanup_retriever_if_unreferenced(r)
+        logger.info("Cleared all stored retrievers for user '%s'", username)
 
     def clear_memory(self, session_id: Optional[str] = None, username: Optional[str] = None):
         """Reset conversation memory checkpointer for a specific session or globally."""
@@ -196,6 +311,7 @@ class AgentService:
 
         has_streamed_tokens = False
         active_node = ""
+        graph_started = False
 
         try:
             async for event in self.graph.astream_events(initial_state, config=config, version="v2"):
@@ -203,6 +319,7 @@ class AgentService:
                 name = event.get("name", "")
 
                 if kind == "on_chain_start":
+                    graph_started = True
                     active_node = name
                     yield {"type": "status", "node": name}
 
@@ -254,8 +371,16 @@ class AgentService:
                 "metadata": metadata
             }
 
-        except Exception:
-            # Fallback to direct robust query execution if streaming events fail
+        except Exception as stream_err:
+            # Retrying on the same thread can append this user turn twice to the
+            # checkpoint and repeat model/search work if streaming failed mid-run.
+            # Only retry when no graph node started, so the original run had no
+            # opportunity to mutate the conversation checkpoint.
+            if graph_started:
+                logger.exception("Streaming query failed after graph execution began")
+                yield {"type": "error", "error": str(stream_err)}
+                return
+
             try:
                 res = await self.aexecute_query(user_query, session_id)
                 yield {"type": "token", "content": res.answer}

@@ -162,14 +162,6 @@ def get_redis_client():
 _IN_MEMORY_USER_SESSIONS: Dict[str, Dict[str, Any]] = {}
 
 
-def is_guest_user(username: Optional[str]) -> bool:
-    """Return True if user is in guest mode."""
-    if not username:
-        return True
-    u = username.strip().lower()
-    return u.startswith("guest_") or u in ("guest", "default_user", "")
-
-
 def sanitize_username(username: Optional[str]) -> str:
     """Sanitize username or return default, preserving words by replacing spaces with underscores."""
     if not username:
@@ -230,7 +222,6 @@ def delete_user_session_from_redis(username: str, session_id: str, checkpointer:
     if hasattr(cp, "delete_thread"):
         try:
             cp.delete_thread(thread_key)
-            cp.delete_thread(session_id)  # Also clean un-prefixed if any
         except Exception as e:
             logger.warning("Error deleting thread '%s' from checkpointer: %s", thread_key, e)
     return True
@@ -247,7 +238,6 @@ def clear_user_all_sessions_from_redis(username: str, checkpointer: Optional[Bas
         for s_id in current.keys():
             try:
                 cp.delete_thread(f"{clean_user}:{s_id}")
-                cp.delete_thread(s_id)
             except Exception:
                 pass
 
@@ -332,13 +322,11 @@ async def adelete_user_session_from_redis(username: str, session_id: str, checkp
     if hasattr(cp, "adelete_thread"):
         try:
             await cp.adelete_thread(thread_key)
-            await cp.adelete_thread(session_id)
         except Exception as e:
             logger.warning("Error async deleting thread '%s' from checkpointer: %s", thread_key, e)
     elif hasattr(cp, "delete_thread"):
         try:
             await asyncio.to_thread(cp.delete_thread, thread_key)
-            await asyncio.to_thread(cp.delete_thread, session_id)
         except Exception as e:
             logger.warning("Error deleting thread '%s' from checkpointer: %s", thread_key, e)
     return True
@@ -357,13 +345,11 @@ async def aclear_user_all_sessions_from_redis(username: str, checkpointer: Optio
         if hasattr(cp, "adelete_thread"):
             try:
                 await cp.adelete_thread(thread_key)
-                await cp.adelete_thread(s_id)
             except Exception:
                 pass
         elif hasattr(cp, "delete_thread"):
             try:
                 await asyncio.to_thread(cp.delete_thread, thread_key)
-                await asyncio.to_thread(cp.delete_thread, s_id)
             except Exception:
                 pass
 

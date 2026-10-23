@@ -28,6 +28,30 @@ def check_backend_health(base_url: Optional[str] = None) -> Tuple[bool, str]:
     except Exception as e:
         return False, f"Backend health check error: {e}"
 
+def check_document_status(
+    username: Optional[str] = None,
+    session_id: Optional[str] = None,
+    base_url: Optional[str] = None
+) -> bool:
+    """
+    Check whether an active retriever resolves for the given user/session on the backend.
+    Returns True if an index/retriever exists, False otherwise.
+    """
+    url = (base_url or get_backend_url()).rstrip("/")
+    params = {}
+    if username:
+        params["username"] = username
+    if session_id:
+        params["session_id"] = session_id
+    try:
+        resp = requests.get(f"{url}/documents/status", params=params, timeout=3.0)
+        if resp.status_code == 200:
+            return bool(resp.json().get("has_retriever", False))
+        return False
+    except Exception as e:
+        logger.debug(f"Failed to check document retriever status: {e}")
+        return False
+
 def upload_documents(
     uploaded_files: list,
     session_id: Optional[str] = None,
@@ -255,14 +279,13 @@ def clear_session_memory(
 
 
 def compute_files_hash(files: list) -> str:
-    """Compute an MD5 hash of uploaded files including content samples to detect edits of identical size."""
-    hasher = hashlib.md5()
+    """Compute a content hash of uploaded files, including edits anywhere in a file."""
+    hasher = hashlib.sha256()
     for f in files:
         hasher.update(f.name.encode())
         raw = f.getvalue() if hasattr(f, "getvalue") else (f.read() if hasattr(f, "read") else b"")
         hasher.update(str(len(raw)).encode())
-        hasher.update(raw[:4096])
-        hasher.update(raw[-4096:])
+        hasher.update(raw)
         if hasattr(f, "seek"):
             f.seek(0)
     return hasher.hexdigest()
