@@ -125,7 +125,11 @@ with st.container():
             if not is_backend_online:
                 st.error("Cannot upload documents: FastAPI backend is unreachable. Start the backend first.")
             else:
-                progress_container = st.empty()
+                header_slot = st.empty()
+                progress_slot = st.empty()
+                metrics_slot = st.empty()
+                caption_slot = st.empty()
+
                 indexing_successful = False
                 completed_chunks = 0
                 completed_requests_cnt = 0
@@ -144,31 +148,33 @@ with st.container():
                             pct = float(event.get("percent", 0.0)) / 100.0
                             pct_clamped = min(1.0, max(0.0, pct))
 
-                            progress_container.empty()
-                            with progress_container.container():
-                                if stage == "parsing":
-                                    st.markdown("### ⚡ **Processing documents…**")
-                                    st.progress(pct_clamped)
+                            if stage == "parsing":
+                                header_slot.markdown("### ⚡ **Processing documents…**")
+                                progress_slot.progress(pct_clamped)
+                                metrics_slot.empty()
+                                with metrics_slot.container():
                                     col1, col2 = st.columns(2)
                                     col1.markdown("**Status:** Extracting text & structure…")
                                     col2.markdown("**Status:** Checking vector cache…")
-                                    st.caption(
-                                        "ℹ️ *Extracting text & layout from research papers. Dynamic estimates will appear if embedding is required.*"
-                                    )
-                                else:
-                                    completed = event.get("completed_requests", 0)
-                                    total_reqs = event.get("total_requests", 1)
-                                    est_rem = event.get("estimated_remaining_seconds", 0.0)
-                                    elapsed = event.get("elapsed_seconds", 0.0)
-                                    rate = event.get("rate_seconds_per_req", 1.07)
-                                    chunks = event.get("total_chunks", 0)
-                                    chunk_size = event.get("chunk_size", 10)
+                                caption_slot.caption(
+                                    "ℹ️ *Extracting text & layout from research papers. Dynamic estimates will appear if embedding is required.*"
+                                )
+                            else:
+                                completed = event.get("completed_requests", 0)
+                                total_reqs = event.get("total_requests", 1)
+                                est_rem = event.get("estimated_remaining_seconds", 0.0)
+                                elapsed = event.get("elapsed_seconds", 0.0)
+                                rate = event.get("rate_seconds_per_req", 1.07)
+                                chunks = event.get("total_chunks", 0)
+                                chunk_size = event.get("chunk_size", 10)
 
-                                    completed_requests_cnt = completed
-                                    total_requests_cnt = total_reqs
+                                completed_requests_cnt = completed
+                                total_requests_cnt = total_reqs
 
-                                    st.markdown("### ⚡ **Generating embeddings…**")
-                                    st.progress(pct_clamped)
+                                header_slot.markdown("### ⚡ **Generating embeddings…**")
+                                progress_slot.progress(pct_clamped)
+                                metrics_slot.empty()
+                                with metrics_slot.container():
                                     col1, col2, col3 = st.columns(3)
                                     col1.metric(
                                         label="Embedding Requests",
@@ -185,38 +191,45 @@ with st.container():
                                         value=f"{chunks} chunks",
                                         delta=f"{chunk_size} chunks/req"
                                     )
-                                    st.caption(
-                                        "ℹ️ **Note:** *Completion time is an estimate based on tested Nomic Embed Text v1.5 API latency (~1.07s/request baseline at ~0.93 req/s). "
-                                        "Network delays, document length, server load, retries, and concurrent users can affect actual duration.*"
-                                    )
+                                caption_slot.caption(
+                                    "ℹ️ **Note:** *Completion time is an estimate based on tested Nomic Embed Text v1.5 API latency (~1.07s/request baseline at ~0.93 req/s). "
+                                    "Network delays, document length, server load, retries, and concurrent users can affect actual duration.*"
+                                )
 
                         elif ev_type == "completed":
                             indexing_successful = True
                             completed_chunks = event.get("chunks_indexed", 0)
                             st.session_state.uploaded_hashes[document_state_key] = current_hash
-                            progress_container.empty()
-                            with progress_container.container():
-                                if total_requests_cnt > 0:
-                                    st.success(
-                                        f"✅ **Indexing complete!** Successfully generated embeddings and indexed {completed_chunks} chunks "
-                                        f"({total_requests_cnt} requests) using Nomic Embed Text v1.5."
-                                    )
-                                else:
-                                    st.success(
-                                        f"✅ **Documents ready!** Successfully loaded and verified {completed_chunks} chunks from Qdrant Cloud (cached)."
-                                    )
-                                st.toast(f"Ready: {len(uploaded_files)} paper(s) ({completed_chunks} chunks)", icon="📄")
+
+                            # Completely remove progress bar, metrics, and caption slots
+                            progress_slot.empty()
+                            metrics_slot.empty()
+                            caption_slot.empty()
+
+                            if total_requests_cnt > 0:
+                                header_slot.success(
+                                    f"✅ **Indexing complete!** Successfully generated embeddings and indexed {completed_chunks} chunks "
+                                    f"({total_requests_cnt} requests) using Nomic Embed Text v1.5."
+                                )
+                            else:
+                                header_slot.success(
+                                    f"✅ **Documents ready!** Successfully loaded and verified {completed_chunks} chunks from Qdrant Cloud (cached)."
+                                )
+                            st.toast(f"Ready: {len(uploaded_files)} paper(s) ({completed_chunks} chunks)", icon="📄")
 
                         elif ev_type == "error":
                             err_msg = event.get("error", "Unknown ingestion error")
-                            progress_container.empty()
-                            with progress_container.container():
-                                st.error(f"❌ **Embedding Error:** {err_msg}")
+                            progress_slot.empty()
+                            metrics_slot.empty()
+                            caption_slot.empty()
+                            header_slot.error(f"❌ **Embedding Error:** {err_msg}")
                             break
 
                 except Exception as ingest_err:
-                    with progress_container.container():
-                        st.error(f"❌ **Unable to process uploaded PDFs:** {ingest_err}")
+                    progress_slot.empty()
+                    metrics_slot.empty()
+                    caption_slot.empty()
+                    header_slot.error(f"❌ **Unable to process uploaded PDFs:** {ingest_err}")
 
         render_document_management_card(uploaded_files)
 
