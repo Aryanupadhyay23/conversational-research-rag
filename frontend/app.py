@@ -10,7 +10,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from frontend.api_client import (
     check_backend_health,
     check_document_status,
-    upload_documents,
     upload_documents_stream,
     stream_chat,
     compute_files_hash,
@@ -212,7 +211,7 @@ with st.container():
                     with progress_container.container():
                         st.error(f"❌ **Unable to process uploaded PDFs:** {ingest_err}")
 
-        render_document_management_card(uploaded_files, is_indexed=True)
+        render_document_management_card(uploaded_files)
 
 st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
 

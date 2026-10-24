@@ -4,7 +4,7 @@ __pycache__/
 *$py.class
 *.pyc
 
-# Virtual environments
+# Virtual environments and packaging
 venv/
 .venv/
 env/
@@ -21,29 +21,41 @@ dist/
 .env.rag
 .streamlit/secrets.toml
 
-# Local databases and vector stores
-chroma_db/
-.chroma/
+# Local databases and persistent data
+data/
 *.db
 *.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
 
-# Logs & scratch files
+# Logs and scratch files
 .logs/
 *.log
 scratch/
 
-# Testing and code quality caches
+# Testing and code-quality caches
 .pytest_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# IDE and Editor artifacts
+# Build and deployment artifacts
+deployment.zip
+*.zip
+*.tar
+*.tar.gz
+
+# IDE and editor artifacts
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+
+# OS artifacts
 .DS_Store
 Thumbs.db

@@ -52,45 +52,6 @@ def check_document_status(
         logger.debug(f"Failed to check document retriever status: {e}")
         return False
 
-def upload_documents(
-    uploaded_files: list,
-    session_id: Optional[str] = None,
-    username: Optional[str] = None,
-    base_url: Optional[str] = None
-) -> dict:
-    """
-    Upload PDF files to FastAPI /upload endpoint for layout extraction and indexing.
-    """
-    url = (base_url or get_backend_url()).rstrip("/")
-    files = []
-    for f in uploaded_files:
-        content = f.getvalue() if hasattr(f, "getvalue") else f.read()
-        files.append(("files", (f.name, content, "application/pdf")))
-
-    data = {}
-    if session_id:
-        data["session_id"] = session_id
-    if username:
-        data["username"] = username
-
-    try:
-        resp = requests.post(
-            f"{url}/upload",
-            files=files,
-            data=data,
-            timeout=300.0
-        )
-        resp.raise_for_status()
-        return resp.json()
-    except requests.exceptions.RequestException as e:
-        error_detail = ""
-        if hasattr(e, "response") and e.response is not None:
-            try:
-                error_detail = e.response.json().get("detail", "")
-            except Exception:
-                error_detail = e.response.text
-        raise RuntimeError(error_detail or str(e))
-
 def upload_documents_stream(
     uploaded_files: list,
     session_id: Optional[str] = None,
@@ -261,22 +222,6 @@ def clear_user_history_on_backend(
     except Exception as e:
         logger.debug(f"Failed to clear all sessions for user {username}: {e}")
         return False
-
-def clear_session_memory(
-    session_id: str,
-    username: Optional[str] = None,
-    base_url: Optional[str] = None
-) -> bool:
-    """Clear conversational memory checkpointer on the FastAPI backend."""
-    url = (base_url or get_backend_url()).rstrip("/")
-    params = {"username": username} if username else {}
-    try:
-        resp = requests.post(f"{url}/session/{session_id}/clear", params=params, timeout=5.0)
-        return resp.status_code == 200
-    except Exception as e:
-        logger.warning(f"Failed to clear backend memory for {session_id}: {e}")
-        return False
-
 
 def compute_files_hash(files: list) -> str:
     """Compute a content hash of uploaded files, including edits anywhere in a file."""

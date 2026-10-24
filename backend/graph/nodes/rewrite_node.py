@@ -1,5 +1,4 @@
 import logging
-from langchain_core.messages import HumanMessage, filter_messages
 from langchain_core.output_parsers import StrOutputParser
 
 from backend.schemas.state import GraphState
@@ -18,7 +17,7 @@ async def rewrite_query_with_context(
 ) -> tuple[str, str]:
     """
     Reformulate query using conversational context, resolving pronouns and enriching
-    with academic keywords for ChromaDB vector and BM25 lexical search.
+    with academic keywords for Qdrant vector and BM25 lexical search.
     Returns (rewritten_query, rationale).
     """
     if not eval_llm:

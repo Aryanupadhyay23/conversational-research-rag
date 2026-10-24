@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import os
 import logging
@@ -12,7 +13,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from backend.services import get_agent_service
+from backend.services import get_agent_service, keepalive_loop
 from backend.routes import (
     health_router,
     documents_router,
@@ -54,7 +55,22 @@ async def lifespan(app: FastAPI):
 
     app.state.http_client = httpx.AsyncClient(timeout=10.0)
 
+    # Start optional Qdrant Cloud keepalive background task (default: 10 pings every 3600s)
+    keepalive_task = None
+    enable_keepalive = os.getenv("ENABLE_QDRANT_KEEPALIVE", "true").lower() in ("true", "1", "yes")
+    if enable_keepalive:
+        interval = int(os.getenv("QDRANT_KEEPALIVE_INTERVAL", "3600"))
+        pings = int(os.getenv("QDRANT_KEEPALIVE_COUNT", "10"))
+        keepalive_task = asyncio.create_task(keepalive_loop(interval_seconds=interval, ping_count=pings))
+
     yield
+
+    if keepalive_task:
+        keepalive_task.cancel()
+        try:
+            await keepalive_task
+        except asyncio.CancelledError:
+            pass
 
     try:
         await app.state.http_client.aclose()

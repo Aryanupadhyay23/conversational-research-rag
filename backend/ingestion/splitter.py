@@ -24,7 +24,9 @@ def split_documents(documents: List[Document]) -> List[Document]:
         page_idx = meta.get("page", 0)
         page_number = page_idx + 1
 
-        chunk_id = str(uuid.uuid4())
+        document_hash = meta.get("document_hash", "")
+        # Stable IDs allow a retry to replace partial points instead of adding duplicates.
+        chunk_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{document_hash}:{idx}")) if document_hash else str(uuid.uuid4())
         meta["chunk_id"] = chunk_id
         meta["chunk_index"] = idx
         meta["source_name"] = source_name

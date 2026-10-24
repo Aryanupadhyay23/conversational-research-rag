@@ -62,10 +62,8 @@ EMBEDDING_BASE_URL = _clean_env(os.getenv("EMBEDDING_BASE_URL")) or "https://nom
 EMBEDDING_MODEL_NAME = _clean_env(os.getenv("EMBEDDING_MODEL_NAME")) or "nomic-embed-text-v1.5"
 EMBEDDING_DIMENSION = int(_clean_env(os.getenv("EMBEDDING_DIMENSION")) or "768")
 EMBEDDING_CHUNK_SIZE = int(_clean_env(os.getenv("EMBEDDING_CHUNK_SIZE")) or "10")
-EMBEDDING_TIMEOUT = float(_clean_env(os.getenv("EMBEDDING_TIMEOUT")) or "60.0")
 EMBEDDING_MAX_WORKERS = int(_clean_env(os.getenv("EMBEDDING_MAX_WORKERS")) or "1")
 BASELINE_EMBEDDING_LATENCY = float(_clean_env(os.getenv("BASELINE_EMBEDDING_LATENCY")) or "1.07")
-BASELINE_EMBEDDING_THROUGHPUT = float(_clean_env(os.getenv("BASELINE_EMBEDDING_THROUGHPUT")) or "0.93")
 
 # Upload Limits
 MAX_UPLOAD_FILES = int(_clean_env(os.getenv("MAX_UPLOAD_FILES")) or "10")
@@ -84,6 +82,23 @@ CHUNK_SIZE = int(_clean_env(os.getenv("CHUNK_SIZE")) or "1200")
 CHUNK_OVERLAP = int(_clean_env(os.getenv("CHUNK_OVERLAP")) or "200")
 MAX_CHAT_HISTORY_MESSAGES = int(_clean_env(os.getenv("MAX_CHAT_HISTORY_MESSAGES")) or "20")
 MAX_STORED_RETRIEVERS = int(_clean_env(os.getenv("MAX_STORED_RETRIEVERS")) or "20")
+
+# --- Persistent document index ---
+# Qdrant Cloud is the primary vector store. The embedded local instance is only
+# used when no cloud/remote endpoint is configured.
+DATA_DIR = _clean_env(os.getenv("DATA_DIR")) or os.path.join(_PROJECT_ROOT, "data")
+DOCUMENTS_DB_PATH = _clean_env(os.getenv("DOCUMENTS_DB_PATH")) or os.path.join(DATA_DIR, "documents.sqlite3")
+
+QDRANT_CLUSTER_ENDPOINT = _clean_env(os.getenv("QDRANT_CLUSTER_ENDPOINT"))
+QDRANT_API_KEY = _clean_env(os.getenv("QDRANT_API_KEY"))
+QDRANT_URL = _clean_env(os.getenv("QDRANT_URL")) or QDRANT_CLUSTER_ENDPOINT
+if QDRANT_URL and not QDRANT_URL.startswith(("http://", "https://")):
+    QDRANT_URL = f"https://{QDRANT_URL}"
+QDRANT_TIMEOUT = float(_clean_env(os.getenv("QDRANT_TIMEOUT")) or "60.0")
+
+QDRANT_LOCAL_PATH = _clean_env(os.getenv("QDRANT_LOCAL_PATH")) or os.path.join(DATA_DIR, "qdrant")
+QDRANT_COLLECTION_NAME = _clean_env(os.getenv("QDRANT_COLLECTION_NAME")) or "research_documents"
+INDEXING_CONFIG_VERSION = _clean_env(os.getenv("INDEXING_CONFIG_VERSION")) or "v1"
 
 # --- Upstash Redis Checkpointer Settings ---
 UPSTASH_REDIS_REST_URL = _clean_env(os.getenv("UPSTASH_REDIS_REST_URL"))

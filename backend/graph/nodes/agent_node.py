@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from langchain_core.messages import AIMessage, ToolMessage, filter_messages
+from langchain_core.messages import AIMessage, ToolMessage
 
 from backend.schemas.state import GraphState
 from backend.prompts.agent import agent_prompt

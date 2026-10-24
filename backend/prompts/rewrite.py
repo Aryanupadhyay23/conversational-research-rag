@@ -2,7 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 query_rewrite_prompt = ChatPromptTemplate.from_messages([
     ("system", (
-        "You are an expert academic query reformulator for scientific document search (ChromaDB vector & BM25 lexical search).\n"
+        "You are an expert academic query reformulator for scientific document search (Qdrant vector & BM25 lexical search).\n"
         "Your task is to rewrite the latest user query into a self-contained, highly specific search query:\n"
         "1. Contextual Disambiguation: If the user query contains pronouns or implicit references (e.g. 'it', 'they', 'the paper', 'this model', 'the second method', 'their findings'), "
         "resolve them using the provided conversation history into explicit names, paper titles, models, algorithms, or concepts.\n"

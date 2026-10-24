@@ -1,0 +1,56 @@
+name: Qdrant Cloud Keep-Alive
+
+on:
+  schedule:
+    # Runs every hour at minute 0 (24 times a day)
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      ping_count:
+        description: "Number of keep-alive pings to send"
+        type: number
+        required: true
+        default: 10
+      delay_seconds:
+        description: "Delay between pings in seconds"
+        type: number
+        required: true
+        default: 0.5
+
+concurrency:
+  group: qdrant-keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping-qdrant:
+    name: Keep Qdrant Cloud Awake
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run Keep-Alive Ping Batch (10 Pings)
+        env:
+          QDRANT_CLUSTER_ENDPOINT: ${{ secrets.QDRANT_CLUSTER_ENDPOINT || 'https://ea1f3caa-612d-4db2-b16f-7703669f3f85.sa-east-1-0.aws.cloud.qdrant.io' }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+        run: |
+          PING_COUNT="${{ github.event.inputs.ping_count || 10 }}"
+          DELAY="${{ github.event.inputs.delay_seconds || 0.5 }}"
+          echo "Starting Qdrant keep-alive batch ($PING_COUNT pings, delay ${DELAY}s)..."
+          python scripts/keepalive_qdrant.py --count "$PING_COUNT" --delay "$DELAY"
+
+      - name: Publish Run Summary
+        if: always()
+        run: |
+          echo "### Qdrant Cloud Keep-Alive Heartbeat" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp (UTC):** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "- **Pings Sent:** ${{ github.event.inputs.ping_count || 10 }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target Cluster:** \`https://ea1f3caa-612d-4db2-b16f-7703669f3f85.sa-east-1-0.aws.cloud.qdrant.io\`" >> $GITHUB_STEP_SUMMARY

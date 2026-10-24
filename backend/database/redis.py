@@ -148,17 +148,6 @@ def get_checkpointer(
     return MemorySaver()
 
 
-def get_redis_client():
-    """Return Upstash Redis client instance if credentials configured, else None."""
-    if UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN:
-        try:
-            from upstash_redis import Redis
-            return Redis(url=UPSTASH_REDIS_REST_URL, token=UPSTASH_REDIS_REST_TOKEN)
-        except Exception as e:
-            logger.warning("Failed to initialize Upstash Redis client: %s", e)
-    return None
-
-
 _IN_MEMORY_USER_SESSIONS: Dict[str, Dict[str, Any]] = {}
 
 
@@ -169,85 +158,6 @@ def sanitize_username(username: Optional[str]) -> str:
     cleaned = re.sub(r"\s+", "_", username.strip().lower())
     clean = "".join(c for c in cleaned if c.isalnum() or c in ("_", "-", "."))
     return clean if clean else "default_user"
-
-
-def get_user_sessions_from_redis(username: str) -> Dict[str, Any]:
-    """Fetch stored conversation sessions for a given user from Upstash Redis or in-memory fallback."""
-    clean_user = sanitize_username(username)
-    client = get_redis_client()
-    if client:
-        try:
-            import json
-            key = f"rag:user_sessions:{clean_user}"
-            raw = client.get(key)
-            if raw:
-                data = json.loads(raw) if isinstance(raw, str) else raw
-                _IN_MEMORY_USER_SESSIONS[clean_user] = data
-                return data
-        except Exception as e:
-            logger.warning("Error fetching sessions for user '%s' from Redis: %s", clean_user, e)
-    return _IN_MEMORY_USER_SESSIONS.get(clean_user, {})
-
-
-def save_user_sessions_to_redis(username: str, sessions: Dict[str, Any]) -> bool:
-    """Persist conversation sessions dictionary for a user to Upstash Redis and in-memory cache."""
-    clean_user = sanitize_username(username)
-    _IN_MEMORY_USER_SESSIONS[clean_user] = dict(sessions)
-    client = get_redis_client()
-    if not client:
-        return True
-    try:
-        import json
-        key = f"rag:user_sessions:{clean_user}"
-        payload = json.dumps(sessions)
-        client.set(key, payload)
-        return True
-    except Exception as e:
-        logger.warning("Error saving sessions for user '%s' to Redis: %s", clean_user, e)
-        return False
-
-
-def delete_user_session_from_redis(username: str, session_id: str, checkpointer: Optional[BaseCheckpointSaver] = None) -> bool:
-    """Delete a single session from user's session list and checkpointer memory."""
-    clean_user = sanitize_username(username)
-    # 1. Update session list
-    current = get_user_sessions_from_redis(clean_user)
-    if session_id in current:
-        del current[session_id]
-        save_user_sessions_to_redis(clean_user, current)
-
-    # 2. Delete thread in checkpointer
-    thread_key = f"{clean_user}:{session_id}"
-    cp = checkpointer or get_checkpointer()
-    if hasattr(cp, "delete_thread"):
-        try:
-            cp.delete_thread(thread_key)
-        except Exception as e:
-            logger.warning("Error deleting thread '%s' from checkpointer: %s", thread_key, e)
-    return True
-
-
-def clear_user_all_sessions_from_redis(username: str, checkpointer: Optional[BaseCheckpointSaver] = None) -> bool:
-    """Clear all session metadata and checkpointer threads for a user from Upstash Redis."""
-    clean_user = sanitize_username(username)
-    client = get_redis_client()
-    current = get_user_sessions_from_redis(clean_user)
-    cp = checkpointer or get_checkpointer()
-
-    if hasattr(cp, "delete_thread"):
-        for s_id in current.keys():
-            try:
-                cp.delete_thread(f"{clean_user}:{s_id}")
-            except Exception:
-                pass
-
-    if client:
-        try:
-            client.delete(f"rag:user_sessions:{clean_user}")
-            return True
-        except Exception as e:
-            logger.warning("Error clearing sessions for user '%s' from Redis: %s", clean_user, e)
-    return True
 
 
 def get_async_redis_client():

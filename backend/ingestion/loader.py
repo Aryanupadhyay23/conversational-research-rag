@@ -1,6 +1,6 @@
 import io
 import logging
-from typing import List, Sequence, Any
+from typing import List, Any
 from langchain_core.documents import Document
 
 logger = logging.getLogger(__name__)
@@ -136,15 +136,3 @@ def load_pdf_from_bytes(file_bytes: bytes, filename: str) -> List[Document]:
     except Exception as e:
         logger.error(f"All PDF extractors failed for '{filename}': {e}")
         return []
-
-def load_uploaded_pdfs(uploaded_files: Sequence) -> List[Document]:
-    """Extract text and tables from uploaded PDF file objects."""
-    all_docs = []
-    for f in uploaded_files:
-        try:
-            data = f.getvalue() if hasattr(f, "getvalue") else f.read()
-            name = getattr(f, "name", "document.pdf")
-            all_docs.extend(load_pdf_from_bytes(data, name))
-        except Exception as e:
-            logger.error(f"Error reading file {getattr(f, 'name', 'unknown')}: {e}")
-    return all_docs

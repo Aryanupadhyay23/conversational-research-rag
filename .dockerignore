@@ -4,14 +4,14 @@ __pycache__/
 *$py.class
 *.pyc
 
-# Environment files and credentials (DO NOT bake secrets into Docker images)
+# Environment files and credentials (never bake secrets into images)
 .env
 .env.*
 *.env
 .env.rag
 .streamlit/secrets.toml
 
-# Virtual environments
+# Virtual environments and packaging
 venv/
 .venv/
 env/
@@ -21,12 +21,14 @@ build/
 dist/
 *.egg-info/
 
-# Git & CI/CD
+# Git, CI/CD, and documentation
 .git/
 .gitignore
 .github/
+*.md
+LICENSE
 
-# IDE and Editor artifacts
+# IDE and editor artifacts
 .vscode/
 .idea/
 *.swp
@@ -35,26 +37,35 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Testing and code quality caches
+# Tests, scratch scripts, and code-quality caches
+tests/
+scripts/
 .pytest_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# Local databases and vector stores
-chroma_db/
-.chroma/
+# Local databases and persistent data
+data/
 *.db
 *.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
 
-# Host deployment scripts & config (run on host, not in container)
+# Host deployment scripts and config (run on host, not in the container)
 deploy/
 appspec.yml
 
-# Logs, scratch files and docker build metadata
+# Logs, archives, and Docker build metadata
 .logs/
 *.log
 scratch/
+*.zip
+*.tar
+*.tar.gz
 Dockerfile
 .dockerignore

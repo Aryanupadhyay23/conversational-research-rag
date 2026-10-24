@@ -155,7 +155,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build Docker Image Locally
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           load: true
@@ -165,23 +165,26 @@ jobs:
 
       - name: Test Container Health Check
         run: |
+          cleanup() { docker rm -f test_container >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+
           docker run -d --name test_container \
             -p 8001:8000 \
             -p 8502:7860 \
             app:${{ github.sha }}
 
-          # Poll health endpoint for up to 30 seconds
-          for i in {1..15}; do
+          # Poll the container healthcheck for up to 60 seconds.
+          for i in {1..30}; do
             sleep 2
-            if curl -sf http://localhost:8001/health | grep healthy; then
+            if curl -sf http://localhost:8001/health | grep -q healthy; then
               echo "FastAPI container passed pre-deployment health check on port 8001."
-              break
+              exit 0
             fi
           done
 
-          curl --fail http://localhost:8001/health
-          docker stop test_container
-          docker rm test_container
+          echo "Container failed to become healthy within 60 seconds." >&2
+          docker logs --tail 200 test_container >&2 || true
+          exit 1
 
       - name: Push Docker Image to Amazon ECR
         env:
@@ -201,7 +204,8 @@ jobs:
             appspec.yml \
             deploy/scripts/install_dependencies.sh \
             deploy/scripts/stop_docker.sh \
-            deploy/scripts/start_docker.sh
+            deploy/scripts/start_docker.sh \
+            deploy/scripts/validate_service.sh
 
       - name: Upload Deployment Artifact to S3
         run: |

@@ -8,7 +8,7 @@ from frontend.api_client import (
 )
 from frontend.components.sidebar.identity import render_user_identity_section
 
-def render_session_sidebar(service=None) -> str:
+def render_session_sidebar() -> str:
     """
     Render conversation history sidebar with user identity & Upstash Redis persistence.
     Returns active session_id.
@@ -86,7 +86,7 @@ def render_session_sidebar(service=None) -> str:
     current_messages = active_session_data.get("messages", [])
     if current_messages:
         transcript_lines = [
-            f"# Research Paper RAG Project - Chat Transcript",
+            "# Research Paper RAG Project - Chat Transcript",
             f"**User:** {username} | **Session:** {st.session_state.current_session_id}\n"
         ]
         for msg in current_messages:

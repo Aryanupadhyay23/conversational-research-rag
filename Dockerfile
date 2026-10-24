@@ -13,9 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python dependencies into isolated /install prefix
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir --prefix=/install -r requirements.txt && \
+RUN pip install --upgrade pip && \
+    pip install --no-compile --prefix=/install -r requirements.txt && \
     find /install -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true && \
     find /install -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
     find /install -type f -name "*.pyc" -delete || true
@@ -29,6 +31,7 @@ WORKDIR /app
 
 # Install minimal runtime dependencies (curl for healthcheck) and clean apt cache
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
@@ -51,6 +54,11 @@ ENV PYTHONUNBUFFERED=1 \
     STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false \
     STREAMLIT_SERVER_ENABLE_CORS=false \
     BACKEND_URL=http://localhost:8000
+
+# Mount this location in production for the SQLite registry. Qdrant Cloud is
+# selected automatically with QDRANT_CLUSTER_ENDPOINT and QDRANT_API_KEY; the
+# local /app/data/qdrant directory is only a fallback when no endpoint is set.
+VOLUME ["/app/data"]
 
 # Expose Streamlit (7860) and FastAPI (8000) ports
 EXPOSE 7860 8000

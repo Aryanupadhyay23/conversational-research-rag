@@ -48,10 +48,11 @@ An enterprise-grade, conversational research assistant designed for deep academi
   - High-dimensional dense vectors (768 dimensions) via OpenAI-compatible endpoint.
   - Asymmetric task prefixes (`search_query: ` for queries, `search_document: ` for documents) to optimize semantic search.
   - Server-Sent Events (SSE) streaming progress bar with real-time remaining-time calculations based on tested API latency (~1.07s/request baseline at ~0.93 req/s throughput).
-* **Multi-Tier PDF Ingestion Engine & Session-Isolated Chroma:**
-  - Layout-aware extraction using `pdfplumber` to preserve tabular grids as Markdown tables, with fallbacks to `PyMuPDF` (`fitz`) and `pypdf`.
+* **Persistent PDF Ingestion Engine (SQLite + Qdrant):**
+  - Fast layout-aware extraction using `PyMuPDF` (`fitz`) with native table extraction, falling back to `pdfplumber` (Markdown table reconstruction) and finally `pypdf`.
   - Token-safe recursive chunking (1200 chars, 200 overlap) and batching (10 chunks/request) to prevent physical model context overflow.
-  - Session-isolated Chroma vectorstore collections preventing cross-user index interference.
+  - SHA-256 document fingerprints and an atomic SQLite claim prevent duplicate uploads from creating embeddings again.
+  - Qdrant persists deterministic per-chunk vectors and verifies every point before an index is marked complete.
   - Fuses dense vector embeddings (Nomic Embed Text v1.5) and sparse lexical search (BM25) via Reciprocal Rank Fusion.
 * **Optimized Multi-Stage Lightweight Docker Container:**
   - Two-stage architecture (`builder` -> `runner`) that strips build-essential toolchains, C-compilers, test packages, and pyc caches from the final image.
@@ -142,15 +143,25 @@ flowchart TD
    - The user query is analyzed to understand the context of the inquiry. It directs the workflow to the appropriate track: deep literature search, empirical claim fact-checking, or direct conversational synthesis.
 2. **Context-Aware Retrieval & Self-Correction:**
    - Evaluates whether indexed passages from uploaded research papers or external scientific literature answer the question.
-   - When conversational history exists, the LLM autonomously resolves ambiguous follow-up questions and pronouns (e.g., *"What were its parameter efficiency results?"*) into concrete, self-contained search terms before querying ChromaDB and BM25.
+   - When conversational history exists, the LLM autonomously resolves ambiguous follow-up questions and pronouns (e.g., *"What were its parameter efficiency results?"*) into concrete, self-contained search terms before querying Qdrant and BM25.
    - If initial passages are incomplete or off-target, the query is autonomously reformulated using academic nomenclature and searched again.
 3. **Scientific Claim Verification:**
-   - Scientific propositions undergo targeted literature reviews, cross-examining published evidence to produce a verified verdict (`SUPPORTED`, `REFUTED`, `PARTIALLY_SUPPORTED`, or `INCONCLUSIVE`) accompanied by citations of any superseding studies.
+   - Scientific propositions undergo targeted literature reviews, cross-examining published evidence to produce a verified verdict (`SUPPORTED`, `REFUTED`, `PARTIALLY_SUPPORTED`, or `UNVERIFIED`) accompanied by citations of any superseding studies.
 4. **Grounded Answer Synthesis & KaTeX Formatting:**
    - The response is composed from verified evidence and previous conversational turns.
    - An integrated factual grounding check screens the draft against hallucinations before formatting the text with clickable citations, evidence quotes, and LaTeX mathematical equations.
 5. **Persistent Conversation Memory:**
    - Dialogue turns are saved to persistent cloud storage via Upstash Redis REST checkpointer, maintaining multi-turn context (up to 20 turns) across chat sessions and client reloads.
+
+### How Citations and Grounding Work
+
+**Citations:** The retrieval flow collects passages from the uploaded PDFs and any web or ArXiv search results. After relevance filtering, the response formatter extracts each passage's title or filename, page number, URL, source type, and a short excerpt. Duplicate entries are removed before the sources are returned to the interface. The interface displays these as source cards and can render the cited page from an uploaded PDF when that file is available in the active chat session.
+
+The source cards describe the evidence used for the answer. They are not currently inline footnote markers that connect each individual sentence in the answer to one source.
+
+**Grounding check:** After the main answer is generated, a separate deterministic evaluation-model call compares the answer with the retrieved context. It receives up to 25,000 characters of evidence and 8,000 characters of the generated answer, then returns whether the answer is grounded, a confidence level, and a short reason. For example, if the context says a paper reported 92% accuracy but the draft says 98%, the check should mark the answer as not grounded.
+
+This is an evidence-alignment review, not an independent fact check of the internet or a guarantee that every statement is true. If the evaluator is unavailable or times out, the current implementation keeps the conversation responsive by returning a default grounded result, so the badge should be read as a useful signal rather than proof.
 
 ---
 
@@ -163,7 +174,7 @@ flowchart TD
 | **Frontend & User Interface** | Streamlit, Vanilla CSS (Obsidian Black Theme) |
 | **Mathematical Rendering** | KaTeX Mathematical Engine, Markdown Normalizer |
 | **Reasoning Model (LLM)** | Ollama Cloud (`gpt-oss:120b`) with multi-key failover |
-| **Hybrid Document Retrieval** | ChromaDB (Dense Vectors), BM25 (Sparse Lexical), Ensemble Reciprocal Rank Fusion |
+| **Hybrid Document Retrieval** | Qdrant (persistent dense vectors), BM25 (sparse lexical), Ensemble Reciprocal Rank Fusion |
 | **Embeddings Model** | Nomic Embed Text v1.5 (`nomic-embed-text-v1.5`, 768 dimensions, OpenAI-compatible API) |
 | **Document Parsing** | `pdfplumber` (layout & tables), `PyMuPDF` (`fitz`), `pypdf` |
 | **External Literature Tools** | Tavily Web Search API, ArXiv Public Literature API |
@@ -180,7 +191,6 @@ conversational-research-rag/
 │
 ├── backend/                              # Full Asynchronous Backend
 │   ├── api.py                            # FastAPI app assembly with lifespan & rotating logs
-│   ├── main.py                           # Application entrypoint alias
 │   ├── config.py                         # Environment, LLMs, embeddings & API settings
 │   │
 │   ├── routes/                           # Modular API Routers by Domain
@@ -195,12 +205,14 @@ conversational-research-rag/
 │   │       └── router.py
 │   │
 │   ├── services/                         # Business & Orchestration Layer
-│   │   ├── __init__.py                   # Re-exports AgentService & QueryResult
-│   │   └── agent_service.py              # LangGraph workflow compilation & streaming engine
+│   │   ├── __init__.py                   # Re-exports AgentService, QueryResult & keepalive helpers
+│   │   ├── agent_service.py              # LangGraph workflow compilation & streaming engine
+│   │   └── qdrant_keepalive.py           # Qdrant Cloud health checks & background keepalive
 │   │
 │   ├── database/                         # State Persistence & Memory Layer
 │   │   ├── __init__.py                   # Checkpointer factory & session state functions
-│   │   └── redis.py                      # Upstash Redis async/sync checkpointer & session storage
+│   │   ├── redis.py                      # Upstash Redis async checkpointer & session storage
+│   │   └── documents.py                  # SQLite document registry & deduplication claims
 │   │
 │   ├── schemas/                          # Pydantic Schemas & State Models
 │   │   ├── __init__.py
@@ -241,8 +253,8 @@ conversational-research-rag/
 │   │   ├── embeddings.py                 # Nomic embeddings factory (LangChain OpenAIEmbeddings)
 │   │   ├── loader.py                     # Layout-aware PDF & table parser
 │   │   ├── splitter.py                   # Recursive character text chunker
-│   │   ├── retriever.py                  # Hybrid EnsembleRetriever (Chroma + BM25) with dynamic progress
-│   │   └── pipeline.py                   # Async ingestion pipeline
+│   │   ├── retriever.py                  # Persistent Qdrant + BM25 hybrid retriever
+│   │   └── pipeline.py                   # Hash-aware async ingestion pipeline
 │   │
 │   └── utils/                            # Shared Utilities
 │       ├── __init__.py
@@ -278,20 +290,24 @@ conversational-research-rag/
 │   └── scripts/
 │       ├── install_dependencies.sh       # Server dependency bootstrapper
 │       ├── start_docker.sh               # ECR login & container runner
-│       └── stop_docker.sh                # Clean container shutdown
+│       ├── stop_docker.sh                # Clean container shutdown
+│       └── validate_service.sh           # Post-deploy container health gate
+│
+├── scripts/
+│   └── keepalive_qdrant.py               # Standalone Qdrant Cloud keep-alive CLI
 │
 ├── .github/workflows/                    # CI/CD Workflows
-│   └── deploy.yml                        # Automated testing, building & AWS EC2 deployment
+│   ├── deploy.yml                        # Validation, image build & AWS EC2 deployment
+│   └── qdrant_keepalive.yml              # Hourly Qdrant Cloud anti-sleep cron
 │
 ├── app.py                                # Root runner: streamlit run app.py
-├── api.py                                # Root runner: fastapi dev api.py / uvicorn api:app
+├── api.py                                # Root runner: uvicorn api:app
 ├── entrypoint.sh                         # Multi-process container launcher
 ├── appspec.yml                           # AWS CodeDeploy deployment specification
 ├── requirements.txt                      # Project dependencies
 ├── .env / .env.rag                       # Environment variables
 ├── .dockerignore                         # Container build exclusion rules
 ├── Dockerfile                            # Docker multi-stage container build
-├── LICENSE                               # MIT License
 └── README.md                             # Documentation & Architecture
 ```
 
@@ -305,6 +321,9 @@ The FastAPI backend exposes fully asynchronous, modular REST endpoints organized
 | :--- | :--- | :--- | :--- |
 | **System** | `GET` | `/` | Root greeting and API running confirmation. |
 | **Health** | `GET` | `/health` | Service health status and active retriever indexing check. |
+| **Health** | `GET` | `/health/qdrant` | Qdrant cluster connectivity, collections, and latency. |
+| **Health** | `GET`/`POST` | `/health/qdrant/ping` | Multi-ping keep-alive endpoint (`count`, `delay_seconds`). |
+| **Documents** | `GET` | `/documents/status` | Reports whether an index/retriever exists for a user/session thread. |
 | **Documents** | `POST` | `/upload` | Multipart PDF upload. Parses layout, chunks text, creates embeddings, and updates the hybrid retriever. |
 | **Documents** | `POST` | `/upload/stream` | Server-Sent Events (SSE) streaming PDF ingestion with dynamic request counters and remaining-time estimation. |
 | **Chat** | `POST` | `/chat` | Executes LangGraph research query synchronously, returning formatted answer, verdict, and citations. |
@@ -383,10 +402,31 @@ EMBEDDING_MODEL_NAME="nomic-embed-text-v1.5"
 EMBEDDING_DIMENSION=768
 EMBEDDING_CHUNK_SIZE=10
 BASELINE_EMBEDDING_LATENCY=1.07
-BASELINE_EMBEDDING_THROUGHPUT=0.93
 CHUNK_SIZE=1200
 CHUNK_OVERLAP=200
+MAX_UPLOAD_FILES=10
+MAX_UPLOAD_MB_PER_FILE=25
+MAX_STORED_RETRIEVERS=20
+
+DATA_DIR="./data"
+DOCUMENTS_DB_PATH="./data/documents.sqlite3"
+
+# Qdrant Cloud vector store (the app connects here automatically when these are set).
+QDRANT_CLUSTER_ENDPOINT="https://your-cluster-id.region.aws.cloud.qdrant.io"
+QDRANT_API_KEY="your_qdrant_cloud_api_key"
+QDRANT_COLLECTION_NAME="research_documents"
+QDRANT_TIMEOUT=60
+# Optional explicit override; takes precedence over QDRANT_CLUSTER_ENDPOINT.
+# QDRANT_URL="https://your-cluster-id.region.aws.cloud.qdrant.io:6333"
+# Local embedded Qdrant is used only when no cloud/remote endpoint is configured.
+# QDRANT_LOCAL_PATH="./data/qdrant"
+INDEXING_CONFIG_VERSION="v1"
 TAVILY_API_KEY="your_tavily_api_key"
+
+# In-app Qdrant keep-alive worker (runs inside the FastAPI process).
+ENABLE_QDRANT_KEEPALIVE=true
+QDRANT_KEEPALIVE_INTERVAL=3600
+QDRANT_KEEPALIVE_COUNT=10
 
 # Upstash Redis Configuration (LangGraph Checkpointer & User Session Storage)
 UPSTASH_REDIS_REST_URL="https://your-database.upstash.io"
@@ -440,24 +480,57 @@ The container leverages an **optimized multi-stage build** (`builder` -> `runner
 2. **Run the Container:**
 
    ```bash
-   docker run -p 7860:7860 -p 8000:8000 --env-file .env conversational-research-rag
+   docker run -p 7860:7860 -p 8000:8000 --env-file .env \
+     -v "$(pwd)/data:/app/data" conversational-research-rag
    ```
 
    * **Web Interface:** Access at `http://localhost:7860`
    * **API Documentation:** Access at `http://localhost:8000/docs`
    * **Container Health Status:** Monitored automatically via `HEALTHCHECK` (`http://localhost:8000/health`)
 
+   The application stores document vectors in Qdrant Cloud using `QDRANT_CLUSTER_ENDPOINT` and `QDRANT_API_KEY`; the embedded local instance is used only when no endpoint is configured. For multiple Uvicorn workers or multiple containers, Qdrant Cloud removes the need for shared vector-store storage, while SQLite's database file must remain on one shared, locking-capable volume.
+
 ---
+
+### Qdrant Cloud Free-Tier Keep-Alive (Anti-Sleep Protection)
+
+Qdrant Cloud free-tier clusters can enter an idle/sleep state if no requests are received over an extended period. Three automated mechanisms keep the free cluster permanently awake:
+
+1. **GitHub Actions Scheduled CI/CD Cron ([.github/workflows/qdrant_keepalive.yml](.github/workflows/qdrant_keepalive.yml)):**
+   - Automatically triggers **every hour** (`cron: '0 * * * *'`) from GitHub's infrastructure.
+   - Pings your Qdrant Cloud cluster **10 times** per run (alternating `/collections` and `/healthz`).
+   - Requires zero local compute and runs completely free even when your local machine or server is powered off.
+   - Can also be triggered manually anytime via GitHub Actions **Run workflow** (`workflow_dispatch`).
+
+2. **FastAPI Multi-Ping & Health Endpoints:**
+   - **Multi-Ping Endpoint:** `GET` / `POST` `/health/qdrant/ping?count=10&delay_seconds=0.2`
+     - Sends 10 pings against the cluster, reporting latency, individual request statuses, and cluster health metrics.
+   - **Cluster Status Endpoint:** `GET` `/health/qdrant`
+     - Returns live cluster connectivity, active collection names, and connection latency.
+
+3. **In-App Background Worker:**
+   - When the FastAPI backend is running, an asynchronous background task automatically fires a 10-ping keepalive batch every hour (`3600s`), controlled via `ENABLE_QDRANT_KEEPALIVE=true`.
+
+4. **Standalone CLI Script:**
+   ```bash
+   # Run a single 10-ping burst
+   python scripts/keepalive_qdrant.py --count 10 --delay 0.5
+
+   # Run as a continuous background daemon (every hour)
+   python scripts/keepalive_qdrant.py --loop --interval 3600 --count 10
+   ```
+
 
 ### Option C: Production Deployment on AWS EC2 (Automated CI/CD)
 
 The application is deployed to **Amazon EC2** using GitHub Actions, Amazon ECR, and AWS CodeDeploy:
 
-1. **Automated Pipeline ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)):**
-   - Automatically runs syntax verification and compilation smoke tests on push to `main` / `master`.
-   - Builds the production Docker image and pushes it to **Amazon ECR**.
+1. **Authorized Pipeline ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)):**
+   - Runs syntax validation, Python compilation, and an import smoke test when the workflow is authorized.
+   - Deployment is gated by `EXECUTE_PIPELINE` (default `false`) and `ENABLE_AWS` (default `false`). Trigger it manually with **Run workflow**, or set both to `true` for push-to-deploy.
+   - Builds the production Docker image, pushes `latest` and the commit SHA to **Amazon ECR**, and verifies the container health endpoint.
    - Packages [`appspec.yml`](appspec.yml) and deployment scripts (`deploy/scripts/`) into an S3 bundle.
-   - Triggers **AWS CodeDeploy** to perform a zero-downtime rolling update on your EC2 instance.
+   - Triggers **AWS CodeDeploy** to stop the old container, install dependencies, start the new image, and validate the container health check before marking the deployment successful.
 
 2. **EC2 Host & Live Domain Mappings (Active Mon–Fri, 9:00 AM – 5:00 PM):**
    - **Streamlit Web Application:** [https://aryan-projects.duckdns.org/research-rag](https://aryan-projects.duckdns.org/research-rag) (or `http://<EC2-HOST-IP>:8502/research-rag` mapped to container port `7860` via `--server.baseUrlPath=research-rag`).

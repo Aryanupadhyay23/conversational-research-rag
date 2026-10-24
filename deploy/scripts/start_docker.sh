@@ -5,6 +5,7 @@ set -e
 AWS_REGION="${AWS_REGION:-ap-southeast-2}"
 ECR_REPOSITORY="${ECR_REPOSITORY:-research-paper-rag}"
 CONTAINER_NAME="research-paper-rag-container"
+PERSISTENT_DATA_DIR="${PERSISTENT_DATA_DIR:-/home/ubuntu/research-paper-rag-data}"
 
 # Fetch AWS Account ID
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity \
@@ -49,16 +50,21 @@ if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
 fi
 
 echo "Starting Research Paper RAG container..."
+mkdir -p "${PERSISTENT_DATA_DIR}"
 
 docker run -d \
     --name "${CONTAINER_NAME}" \
     --restart unless-stopped \
     -p 8502:7860 \
     -p 8001:8000 \
+    -v "${PERSISTENT_DATA_DIR}:/app/data" \
     "${ENV_ARGS[@]}" \
+    -e DATA_DIR=/app/data \
+    -e DOCUMENTS_DB_PATH=/app/data/documents.sqlite3 \
+    -e QDRANT_LOCAL_PATH=/app/data/qdrant \
     "${IMAGE_URI}" \
     sh -c '
-        uvicorn backend.main:app \
+        uvicorn api:app \
             --host 0.0.0.0 \
             --port 8000 \
             --root-path /research-rag-backend &

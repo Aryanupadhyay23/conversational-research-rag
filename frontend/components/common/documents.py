@@ -1,6 +1,6 @@
 import streamlit as st
 
-def render_document_management_card(uploaded_files, is_indexed: bool):
+def render_document_management_card(uploaded_files):
     """Render a clean card displaying uploaded documents without technical vector jargon."""
     if not uploaded_files:
         return
@@ -17,6 +17,7 @@ def render_document_management_card(uploaded_files, is_indexed: bool):
     st.markdown(
         "<div style='margin-top: 8px; font-size: 11.5px; color: #a1a1aa;'>"
         "⚡ <strong>Embedding Model:</strong> <code>nomic-embed-text-v1.5</code> (768-dim) • "
+        "<strong>Vector Engine:</strong> <code>Qdrant Cloud (Persistent)</code> • "
         "<strong>Tested Baseline:</strong> ~1.07s/req (~0.93 req/s) • "
         "<strong>Batching:</strong> 10 chunks/request"
         "</div>",

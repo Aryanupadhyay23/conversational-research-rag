@@ -1,14 +1,11 @@
-import concurrent.futures
-import asyncio
 import logging
-from typing import List, Dict, Any, Coroutine, TypeVar, Sequence
+from typing import List, Dict, Any, Sequence
 
 from langchain_core.documents import Document
 from langchain_core.prompts import PromptTemplate, format_document
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
 DOC_TEMPLATE = PromptTemplate.from_template("[{title}]\n{page_content}")
 
 def format_docs_to_context(docs: List[Document]) -> str:
@@ -98,15 +95,3 @@ def filter_clean_chat_history(
             clean_history.append(m)
 
     return clean_history[-max_messages:]
-
-def run_async_safe(coro: Coroutine[Any, Any, T]) -> T:
-    """Safely execute async coroutine in synchronous contexts."""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            return executor.submit(lambda: asyncio.run(coro)).result()
-    return asyncio.run(coro)
