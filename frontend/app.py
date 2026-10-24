@@ -144,15 +144,16 @@ with st.container():
                             pct = float(event.get("percent", 0.0)) / 100.0
                             pct_clamped = min(1.0, max(0.0, pct))
 
+                            progress_container.empty()
                             with progress_container.container():
                                 if stage == "parsing":
-                                    st.markdown("### ⚡ **Generating embeddings…**")
+                                    st.markdown("### ⚡ **Processing documents…**")
                                     st.progress(pct_clamped)
                                     col1, col2 = st.columns(2)
-                                    col1.markdown("**Progress:** Calculating estimated time…")
-                                    col2.markdown("**Estimated time remaining:** Calculating…")
+                                    col1.markdown("**Status:** Extracting text & structure…")
+                                    col2.markdown("**Status:** Checking vector cache…")
                                     st.caption(
-                                        "ℹ️ *Extracting text & layout from research papers. Request counts and dynamic estimates will appear once chunking completes.*"
+                                        "ℹ️ *Extracting text & layout from research papers. Dynamic estimates will appear if embedding is required.*"
                                     )
                                 else:
                                     completed = event.get("completed_requests", 0)
@@ -193,16 +194,22 @@ with st.container():
                             indexing_successful = True
                             completed_chunks = event.get("chunks_indexed", 0)
                             st.session_state.uploaded_hashes[document_state_key] = current_hash
+                            progress_container.empty()
                             with progress_container.container():
-                                st.progress(1.0)
-                                st.success(
-                                    f"✅ **Indexing complete!** Successfully generated embeddings and indexed {completed_chunks} chunks "
-                                    f"({total_requests_cnt or completed_requests_cnt} requests) using Nomic Embed Text v1.5."
-                                )
-                                st.toast(f"Indexed {len(uploaded_files)} paper(s) ({completed_chunks} chunks)", icon="📄")
+                                if total_requests_cnt > 0:
+                                    st.success(
+                                        f"✅ **Indexing complete!** Successfully generated embeddings and indexed {completed_chunks} chunks "
+                                        f"({total_requests_cnt} requests) using Nomic Embed Text v1.5."
+                                    )
+                                else:
+                                    st.success(
+                                        f"✅ **Documents ready!** Successfully loaded and verified {completed_chunks} chunks from Qdrant Cloud (cached)."
+                                    )
+                                st.toast(f"Ready: {len(uploaded_files)} paper(s) ({completed_chunks} chunks)", icon="📄")
 
                         elif ev_type == "error":
                             err_msg = event.get("error", "Unknown ingestion error")
+                            progress_container.empty()
                             with progress_container.container():
                                 st.error(f"❌ **Embedding Error:** {err_msg}")
                             break

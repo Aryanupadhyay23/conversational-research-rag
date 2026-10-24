@@ -45,10 +45,24 @@ def get_qdrant_client():
     return _qdrant_client
 
 def ensure_collection(client, collection_name: str) -> None:
-    from qdrant_client.models import Distance, VectorParams
+    from qdrant_client.models import Distance, PayloadSchemaType, VectorParams
     if not client.collection_exists(collection_name):
         client.create_collection(collection_name=collection_name,
             vectors_config=VectorParams(size=EMBEDDING_DIMENSION, distance=Distance.COSINE))
+    try:
+        collection_info = client.get_collection(collection_name)
+        schema = getattr(collection_info, "payload_schema", {}) or {}
+        if "metadata.document_hash" not in schema:
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="metadata.document_hash",
+                field_schema=PayloadSchemaType.KEYWORD,
+                wait=True
+            )
+            logger.info("Created keyword payload index on 'metadata.document_hash' for %s", collection_name)
+    except Exception as exc:
+        logger.warning("Could not ensure payload index on 'metadata.document_hash': %s", exc)
+
 
 def _point_id(document_hash: str, chunk_index: int) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"qdrant-pdf:{document_hash}:{chunk_index}"))
@@ -120,6 +134,7 @@ def load_document_chunks(document_hash: str, collection_name: str) -> List[Docum
     client = get_qdrant_client()
     if not client.collection_exists(collection_name):
         return []
+    ensure_collection(client, collection_name)
     offset, docs = None, []
     query_filter = Filter(must=[FieldCondition(key="metadata.document_hash", match=MatchValue(value=document_hash))])
     while True:
