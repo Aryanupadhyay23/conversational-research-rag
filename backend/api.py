@@ -13,7 +13,14 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from backend.services import get_agent_service, keepalive_loop
+from backend.config import (
+    ENABLE_QDRANT_KEEPALIVE,
+    QDRANT_KEEPALIVE_INTERVAL,
+    QDRANT_KEEPALIVE_REQUESTS,
+    QDRANT_URL,
+)
+from backend.ingestion.retriever import ping_qdrant
+from backend.services import get_agent_service
 from backend.routes import (
     health_router,
     documents_router,
@@ -55,20 +62,42 @@ async def lifespan(app: FastAPI):
 
     app.state.http_client = httpx.AsyncClient(timeout=10.0)
 
-    # Start optional Qdrant Cloud keepalive background task (default: 10 pings every 3600s)
-    keepalive_task = None
-    enable_keepalive = os.getenv("ENABLE_QDRANT_KEEPALIVE", "true").lower() in ("true", "1", "yes")
-    if enable_keepalive:
-        interval = int(os.getenv("QDRANT_KEEPALIVE_INTERVAL", "3600"))
-        pings = int(os.getenv("QDRANT_KEEPALIVE_COUNT", "10"))
-        keepalive_task = asyncio.create_task(keepalive_loop(interval_seconds=interval, ping_count=pings))
+    stop_event = asyncio.Event()
+
+    async def periodic_qdrant_keepalive():
+        """Keep a free-tier Qdrant Cloud cluster active without affecting request handling."""
+        while not stop_event.is_set():
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=QDRANT_KEEPALIVE_INTERVAL)
+                break
+            except asyncio.TimeoutError:
+                pass
+            except asyncio.CancelledError:
+                break
+
+            successes = 0
+            for _ in range(QDRANT_KEEPALIVE_REQUESTS):
+                if stop_event.is_set():
+                    break
+                if await asyncio.to_thread(ping_qdrant):
+                    successes += 1
+            logger.info(
+                "Qdrant keepalive finished: %s/%s requests succeeded.",
+                successes,
+                QDRANT_KEEPALIVE_REQUESTS,
+            )
+
+    qdrant_keepalive_task = None
+    if QDRANT_URL and ENABLE_QDRANT_KEEPALIVE:
+        qdrant_keepalive_task = asyncio.create_task(periodic_qdrant_keepalive())
 
     yield
 
-    if keepalive_task:
-        keepalive_task.cancel()
+    stop_event.set()
+    if qdrant_keepalive_task:
+        qdrant_keepalive_task.cancel()
         try:
-            await keepalive_task
+            await qdrant_keepalive_task
         except asyncio.CancelledError:
             pass
 

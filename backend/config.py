@@ -100,6 +100,11 @@ QDRANT_LOCAL_PATH = _clean_env(os.getenv("QDRANT_LOCAL_PATH")) or os.path.join(D
 QDRANT_COLLECTION_NAME = _clean_env(os.getenv("QDRANT_COLLECTION_NAME")) or "research_documents"
 INDEXING_CONFIG_VERSION = _clean_env(os.getenv("INDEXING_CONFIG_VERSION")) or "v1"
 
+# In-app Qdrant Cloud keep-alive: one lightweight authenticated SDK call per interval.
+ENABLE_QDRANT_KEEPALIVE = (_clean_env(os.getenv("ENABLE_QDRANT_KEEPALIVE")) or "true").lower() in ("true", "1", "yes")
+QDRANT_KEEPALIVE_INTERVAL = int(_clean_env(os.getenv("QDRANT_KEEPALIVE_INTERVAL")) or "3600")
+QDRANT_KEEPALIVE_REQUESTS = int(_clean_env(os.getenv("QDRANT_KEEPALIVE_REQUESTS")) or "10")
+
 # --- Upstash Redis Checkpointer Settings ---
 UPSTASH_REDIS_REST_URL = _clean_env(os.getenv("UPSTASH_REDIS_REST_URL"))
 UPSTASH_REDIS_REST_TOKEN = _clean_env(os.getenv("UPSTASH_REDIS_REST_TOKEN"))

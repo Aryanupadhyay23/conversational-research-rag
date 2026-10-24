@@ -205,9 +205,8 @@ conversational-research-rag/
 │   │       └── router.py
 │   │
 │   ├── services/                         # Business & Orchestration Layer
-│   │   ├── __init__.py                   # Re-exports AgentService, QueryResult & keepalive helpers
-│   │   ├── agent_service.py              # LangGraph workflow compilation & streaming engine
-│   │   └── qdrant_keepalive.py           # Qdrant Cloud health checks & background keepalive
+│   │   ├── __init__.py                   # Re-exports AgentService & QueryResult
+│   │   └── agent_service.py              # LangGraph workflow compilation & streaming engine
 │   │
 │   ├── database/                         # State Persistence & Memory Layer
 │   │   ├── __init__.py                   # Checkpointer factory & session state functions
@@ -293,12 +292,8 @@ conversational-research-rag/
 │       ├── stop_docker.sh                # Clean container shutdown
 │       └── validate_service.sh           # Post-deploy container health gate
 │
-├── scripts/
-│   └── keepalive_qdrant.py               # Standalone Qdrant Cloud keep-alive CLI
-│
 ├── .github/workflows/                    # CI/CD Workflows
-│   ├── deploy.yml                        # Validation, image build & AWS EC2 deployment
-│   └── qdrant_keepalive.yml              # Hourly Qdrant Cloud anti-sleep cron
+│   └── deploy.yml                        # Validation, image build & AWS EC2 deployment
 │
 ├── app.py                                # Root runner: streamlit run app.py
 ├── api.py                                # Root runner: uvicorn api:app
@@ -321,8 +316,6 @@ The FastAPI backend exposes fully asynchronous, modular REST endpoints organized
 | :--- | :--- | :--- | :--- |
 | **System** | `GET` | `/` | Root greeting and API running confirmation. |
 | **Health** | `GET` | `/health` | Service health status and active retriever indexing check. |
-| **Health** | `GET` | `/health/qdrant` | Qdrant cluster connectivity, collections, and latency. |
-| **Health** | `GET`/`POST` | `/health/qdrant/ping` | Multi-ping keep-alive endpoint (`count`, `delay_seconds`). |
 | **Documents** | `GET` | `/documents/status` | Reports whether an index/retriever exists for a user/session thread. |
 | **Documents** | `POST` | `/upload` | Multipart PDF upload. Parses layout, chunks text, creates embeddings, and updates the hybrid retriever. |
 | **Documents** | `POST` | `/upload/stream` | Server-Sent Events (SSE) streaming PDF ingestion with dynamic request counters and remaining-time estimation. |
@@ -426,7 +419,7 @@ TAVILY_API_KEY="your_tavily_api_key"
 # In-app Qdrant keep-alive worker (runs inside the FastAPI process).
 ENABLE_QDRANT_KEEPALIVE=true
 QDRANT_KEEPALIVE_INTERVAL=3600
-QDRANT_KEEPALIVE_COUNT=10
+QDRANT_KEEPALIVE_REQUESTS=10
 
 # Upstash Redis Configuration (LangGraph Checkpointer & User Session Storage)
 UPSTASH_REDIS_REST_URL="https://your-database.upstash.io"
@@ -494,31 +487,13 @@ The container leverages an **optimized multi-stage build** (`builder` -> `runner
 
 ### Qdrant Cloud Free-Tier Keep-Alive (Anti-Sleep Protection)
 
-Qdrant Cloud free-tier clusters can enter an idle/sleep state if no requests are received over an extended period. Three automated mechanisms keep the free cluster permanently awake:
+Qdrant Cloud free-tier clusters can enter an idle/sleep state if no requests are received over an extended period. The FastAPI lifespan starts a single background worker that keeps the cluster awake:
 
-1. **GitHub Actions Scheduled CI/CD Cron ([.github/workflows/qdrant_keepalive.yml](.github/workflows/qdrant_keepalive.yml)):**
-   - Automatically triggers **every hour** (`cron: '0 * * * *'`) from GitHub's infrastructure.
-   - Pings your Qdrant Cloud cluster **10 times** per run (alternating `/collections` and `/healthz`).
-   - Requires zero local compute and runs completely free even when your local machine or server is powered off.
-   - Can also be triggered manually anytime via GitHub Actions **Run workflow** (`workflow_dispatch`).
-
-2. **FastAPI Multi-Ping & Health Endpoints:**
-   - **Multi-Ping Endpoint:** `GET` / `POST` `/health/qdrant/ping?count=10&delay_seconds=0.2`
-     - Sends 10 pings against the cluster, reporting latency, individual request statuses, and cluster health metrics.
-   - **Cluster Status Endpoint:** `GET` `/health/qdrant`
-     - Returns live cluster connectivity, active collection names, and connection latency.
-
-3. **In-App Background Worker:**
-   - When the FastAPI backend is running, an asynchronous background task automatically fires a 10-ping keepalive batch every hour (`3600s`), controlled via `ENABLE_QDRANT_KEEPALIVE=true`.
-
-4. **Standalone CLI Script:**
-   ```bash
-   # Run a single 10-ping burst
-   python scripts/keepalive_qdrant.py --count 10 --delay 0.5
-
-   # Run as a continuous background daemon (every hour)
-   python scripts/keepalive_qdrant.py --loop --interval 3600 --count 10
-   ```
+- **One authenticated SDK call per ping:** `client.get_collections()` is a cheap, read-only metadata request that validates connectivity and authentication without touching vector data.
+- **Schedule:** every hour (`QDRANT_KEEPALIVE_INTERVAL=3600`), sending `QDRANT_KEEPALIVE_REQUESTS` pings (default `10`) per batch.
+- **Non-blocking:** each ping runs via `asyncio.to_thread(...)` so the synchronous SDK call never blocks the event loop.
+- **Graceful shutdown:** the worker waits on a `stop_event` and exits cleanly when the app stops.
+- **Cloud only:** the worker is skipped when no `QDRANT_URL`/`QDRANT_CLUSTER_ENDPOINT` is configured (local embedded Qdrant does not need keep-alive). Set `ENABLE_QDRANT_KEEPALIVE=false` to disable it entirely.
 
 
 ### Option C: Production Deployment on AWS EC2 (Automated CI/CD)

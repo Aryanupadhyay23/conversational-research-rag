@@ -44,6 +44,15 @@ def get_qdrant_client():
         logger.info("Using embedded Qdrant at %s", QDRANT_LOCAL_PATH)
     return _qdrant_client
 
+def ping_qdrant() -> bool:
+    """Make one inexpensive authenticated request to Qdrant Cloud."""
+    try:
+        get_qdrant_client().get_collections()
+        return True
+    except Exception as exc:
+        logger.warning("Qdrant Cloud is unavailable: %s", exc)
+        return False
+
 def ensure_collection(client, collection_name: str) -> None:
     from qdrant_client.models import Distance, PayloadSchemaType, VectorParams
     if not client.collection_exists(collection_name):
