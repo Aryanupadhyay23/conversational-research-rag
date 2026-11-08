@@ -1,0 +1,278 @@
+{
+  "dataset_name": "golden_dataset",
+  "version": "1.1.0",
+  "description": "Shared golden dataset for retriever, generator, and full RAG triad evaluation. Each record contains the query, the evidence a retriever should return, and a reference answer for answer-quality checks.",
+  "evaluation_contract": {
+    "retriever": {
+      "inputs": ["query"],
+      "reference_fields": ["golden_context", "golden_context_id"],
+      "metrics": ["recall", "precision", "hit_rate", "context_relevance"]
+    },
+    "generator": {
+      "inputs": ["query", "golden_context"],
+      "reference_fields": ["reference_answer"],
+      "metrics": ["faithfulness", "answer_relevance"]
+    },
+    "triad": {
+      "inputs": ["query"],
+      "reference_fields": ["golden_context", "reference_answer"],
+      "metrics": ["retrieval_recall", "retrieval_precision", "faithfulness", "answer_relevance"]
+    }
+  },
+  "field_contract": {
+    "id": "Stable example identifier.",
+    "paper": "Source paper title.",
+    "query": "User query sent to the retriever or RAG application.",
+    "golden_context": "Minimal self-contained evidence that supports the reference answer.",
+    "golden_context_id": "Derived evidence identifier: concatenate the record id with _ctx; evaluators should use this stable value for exact-match retrieval scoring.",
+    "reference_answer": "Expected answer grounded only in golden_context.",
+    "tags": "Coverage labels for slicing CI metrics by topic and query style."
+  },
+  "papers": [
+    "Attention Is All You Need",
+    "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+    "Improving Language Understanding by Generative Pre-Training"
+  ],
+  "records": [
+    {
+      "id": "attention_001",
+      "paper": "Attention Is All You Need",
+      "query": "What is the formula for scaled dot-product attention, and why is it scaled?",
+      "golden_context": "Attention(Q, K, V) = softmax(QK^T / sqrt(d_k))V. For large values of d_k, the dot products grow large in magnitude and push the softmax into regions with extremely small gradients. Scaling by 1/sqrt(d_k) counteracts this effect.",
+      "reference_answer": "Scaled dot-product attention is softmax(QK^T / sqrt(d_k))V. The 1/sqrt(d_k) factor prevents large dot products from producing very small softmax gradients.",
+      "tags": ["formula", "attention", "semantic"]
+    },
+    {
+      "id": "attention_002",
+      "paper": "Attention Is All You Need",
+      "query": "How many encoder layers, attention heads, and model dimensions are used in the Transformer base model?",
+      "golden_context": "The base model uses an encoder stack of N = 6 identical layers, h = 8 parallel attention heads, d_model = 512, and d_k = d_v = d_model/h = 64.",
+      "reference_answer": "The base Transformer has 6 layers, 8 attention heads, model dimension 512, and key/value dimensions of 64 per head.",
+      "tags": ["architecture", "numbers", "keyword"]
+    },
+    {
+      "id": "attention_003",
+      "paper": "Attention Is All You Need",
+      "query": "How are residual connections and layer normalization arranged around each Transformer sub-layer?",
+      "golden_context": "A residual connection is employed around each sub-layer, followed by layer normalization. The output is LayerNorm(x + Sublayer(x)). All sub-layers and embedding layers produce outputs of dimension d_model = 512.",
+      "reference_answer": "Each sub-layer computes LayerNorm(x + Sublayer(x)); the residual addition is followed by layer normalization.",
+      "tags": ["encoder", "normalization", "paraphrase"]
+    },
+    {
+      "id": "attention_004",
+      "paper": "Attention Is All You Need",
+      "query": "What does masking do in decoder self-attention?",
+      "golden_context": "The decoder self-attention sub-layer is modified to prevent positions from attending to subsequent positions. With output embeddings offset by one position, predictions at position i depend only on known outputs at positions less than i.",
+      "reference_answer": "The mask enforces autoregressive causality by blocking attention to future positions.",
+      "tags": ["decoder", "causal", "semantic"]
+    },
+    {
+      "id": "attention_005",
+      "paper": "Attention Is All You Need",
+      "query": "What is the equation for the position-wise feed-forward network?",
+      "golden_context": "Each encoder and decoder layer contains a fully connected feed-forward network applied separately and identically to each position. It has two linear transformations with a ReLU between them: FFN(x) = max(0, xW1 + b1)W2 + b2.",
+      "reference_answer": "FFN(x) = max(0, xW1 + b1)W2 + b2: two linear layers with a ReLU activation between them.",
+      "tags": ["formula", "feed-forward", "keyword"]
+    },
+    {
+      "id": "attention_006",
+      "paper": "Attention Is All You Need",
+      "query": "How are sinusoidal positional encodings calculated?",
+      "golden_context": "The positional encoding uses PE(pos, 2i) = sin(pos/10000^(2i/d_model)) and PE(pos, 2i+1) = cos(pos/10000^(2i/d_model)). Each dimension is a sinusoid with wavelengths forming a geometric progression.",
+      "reference_answer": "Even dimensions use sine and odd dimensions use cosine, with frequency determined by the position, dimension index, and model dimension.",
+      "tags": ["positional-encoding", "formula", "paraphrase"]
+    },
+    {
+      "id": "attention_007",
+      "paper": "Attention Is All You Need",
+      "query": "What are the per-layer complexities of self-attention and recurrent layers?",
+      "golden_context": "Self-attention has per-layer complexity O(n^2 d) and a constant number of sequential operations. A recurrent layer has complexity O(nd^2) and requires O(n) sequential operations. Self-attention is faster when sequence length n is smaller than representation dimension d.",
+      "reference_answer": "Self-attention costs O(n^2d) with O(1) sequential operations, while recurrence costs O(nd^2) with O(n) sequential operations.",
+      "tags": ["complexity", "comparison", "numbers"]
+    },
+    {
+      "id": "attention_008",
+      "paper": "Attention Is All You Need",
+      "query": "Which regularization methods and rates were used to train the Transformer?",
+      "golden_context": "Residual dropout with P_drop = 0.1 is applied to sub-layer outputs before residual addition and normalization, and to sums of embeddings and positional encodings. Label smoothing uses epsilon_ls = 0.1.",
+      "reference_answer": "The model uses dropout at rate 0.1 and label smoothing with epsilon 0.1.",
+      "tags": ["training", "regularization", "keyword"]
+    },
+    {
+      "id": "attention_009",
+      "paper": "Attention Is All You Need",
+      "query": "How does multi-head attention combine its individual heads?",
+      "golden_context": "MultiHead(Q,K,V) = Concat(head1,...,headh)W^O, where headi = Attention(QW_i^Q, KW_i^K, VW_i^V). The projected heads attend in parallel, are concatenated, and are projected with W^O.",
+      "reference_answer": "Each head independently projects Q, K, and V and computes attention; the heads are concatenated and passed through W^O.",
+      "tags": ["multi-head", "formula", "semantic"]
+    },
+    {
+      "id": "attention_010",
+      "paper": "Attention Is All You Need",
+      "query": "What optimizer and hardware were used for the Transformer experiments?",
+      "golden_context": "The models were trained on one machine with 8 NVIDIA P100 GPUs. Adam was used with beta1 = 0.9, beta2 = 0.98, and epsilon = 10^-9. The base model was trained for 100,000 steps and the big model for 300,000 steps.",
+      "reference_answer": "Training used 8 NVIDIA P100 GPUs and Adam with beta1 0.9, beta2 0.98, and epsilon 10^-9.",
+      "tags": ["training", "hardware", "keyword"]
+    },
+    {
+      "id": "bert_001",
+      "paper": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+      "query": "How do BERT_BASE and BERT_LARGE differ in size?",
+      "golden_context": "BERT_BASE has L=12 layers, H=768 hidden size, A=12 attention heads, and 110M parameters. BERT_LARGE has L=24, H=1024, A=16, and 340M parameters.",
+      "reference_answer": "BERT_BASE is 12-layer, 768-hidden, 12-head, and 110M parameters; BERT_LARGE is 24-layer, 1024-hidden, 16-head, and 340M parameters.",
+      "tags": ["architecture", "numbers", "keyword"]
+    },
+    {
+      "id": "bert_002",
+      "paper": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+      "query": "What is BERT's 80-10-10 masking rule?",
+      "golden_context": "BERT masks 15% of WordPiece tokens. For a selected token, 80% are replaced with [MASK], 10% with a random token, and 10% are left unchanged.",
+      "reference_answer": "Among the 15% selected tokens, 80% become [MASK], 10% become random tokens, and 10% stay unchanged.",
+      "tags": ["MLM", "pretraining", "numbers"]
+    },
+    {
+      "id": "bert_003",
+      "paper": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+      "query": "How does next sentence prediction work in BERT?",
+      "golden_context": "For next sentence prediction, 50% of sentence pairs contain a sentence B that actually follows sentence A and are labeled IsNext; 50% pair A with a random sentence and are labeled NotNext.",
+      "reference_answer": "NSP is a binary task: half the pairs are consecutive sentences and half are randomly paired.",
+      "tags": ["NSP", "pretraining", "paraphrase"]
+    },
+    {
+      "id": "bert_004",
+      "paper": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+      "query": "What embeddings are summed to form a BERT token representation?",
+      "golden_context": "For each token, BERT sums the corresponding token, segment, and position embeddings. Sentence pairs use segment embeddings to indicate whether a token belongs to sentence A or sentence B.",
+      "reference_answer": "A BERT input representation is the sum of token, segment, and position embeddings.",
+      "tags": ["input", "embeddings", "semantic"]
+    },
+    {
+      "id": "bert_005",
+      "paper": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+      "query": "What is the role of the [CLS] token?",
+      "golden_context": "The first token of every sequence is [CLS]. Its final hidden state is used as the aggregate sequence representation for classification tasks.",
+      "reference_answer": "[CLS] is placed at the start, and its final hidden state represents the whole sequence for classification.",
+      "tags": ["classification", "special-token", "keyword"]
+    },
+    {
+      "id": "bert_006",
+      "paper": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+      "query": "Which corpora were used for BERT pre-training?",
+      "golden_context": "The pre-training corpus consists of BooksCorpus with 800M words and English Wikipedia with 2,500M words. Wikipedia lists, tables, and headers were removed.",
+      "reference_answer": "BERT was pre-trained on BooksCorpus and English Wikipedia, containing approximately 800M and 2,500M words respectively.",
+      "tags": ["data", "pretraining", "keyword"]
+    },
+    {
+      "id": "bert_007",
+      "paper": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+      "query": "How is BERT's bidirectional attention different from OpenAI GPT's?",
+      "golden_context": "OpenAI GPT is a unidirectional left-to-right Transformer decoder whose tokens attend only to previous tokens. BERT is a bidirectional Transformer encoder in which each token can attend to both left and right context.",
+      "reference_answer": "GPT uses left-to-right causal attention, whereas BERT conditions on both left and right context through a bidirectional encoder.",
+      "tags": ["comparison", "architecture", "semantic"]
+    },
+    {
+      "id": "bert_008",
+      "paper": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+      "query": "What tokenizer and vocabulary size does BERT use?",
+      "golden_context": "BERT uses WordPiece embeddings with a 30,000-token vocabulary. Rare or unseen words can be split into subword units, with ## marking a continuation subword.",
+      "reference_answer": "BERT uses WordPiece tokenization with a 30,000-token vocabulary and ## continuation markers.",
+      "tags": ["tokenization", "numbers", "keyword"]
+    },
+    {
+      "id": "bert_009",
+      "paper": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+      "query": "How does BERT answer questions on SQuAD v1.1?",
+      "golden_context": "The question and passage are packed as one sequence. Learned start vector S and end vector E score token representations T_i; the predicted span maximizes S·T_i + E·T_j subject to j >= i.",
+      "reference_answer": "BERT predicts an answer span by independently scoring its start and end tokens and selecting the highest-scoring valid span.",
+      "tags": ["question-answering", "SQuAD", "formula"]
+    },
+    {
+      "id": "bert_010",
+      "paper": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+      "query": "How well did BERT's fixed-feature approach perform compared with fine-tuning on NER?",
+      "golden_context": "On CoNLL-2003 NER, concatenating token representations from BERT's top four hidden layers achieved 96.1 F1 using fixed features, compared with 96.4 F1 for full fine-tuning.",
+      "reference_answer": "The fixed-feature approach scored 96.1 F1, only 0.3 points below full fine-tuning at 96.4 F1.",
+      "tags": ["evaluation", "NER", "numbers"]
+    },
+    {
+      "id": "gpt_001",
+      "paper": "Improving Language Understanding by Generative Pre-Training",
+      "query": "What objective does GPT use for unsupervised pre-training?",
+      "golden_context": "GPT maximizes the autoregressive language-model likelihood L1(U) = sum_i log P(u_i | u_(i-k), ..., u_(i-1); Theta), predicting each token from the preceding context window.",
+      "reference_answer": "GPT maximizes the log-likelihood of each token conditioned on the preceding k tokens.",
+      "tags": ["objective", "formula", "keyword"]
+    },
+    {
+      "id": "gpt_002",
+      "paper": "Improving Language Understanding by Generative Pre-Training",
+      "query": "Why was an auxiliary language-modeling loss added during GPT fine-tuning?",
+      "golden_context": "The supervised objective is augmented with an auxiliary language-modeling objective: L3(C) = L2(C) + lambda L1(C), with lambda typically set to 0.5. This improves generalization and accelerates convergence.",
+      "reference_answer": "The auxiliary loss, usually weighted by 0.5, improves generalization and speeds convergence during supervised fine-tuning.",
+      "tags": ["fine-tuning", "objective", "numbers"]
+    },
+    {
+      "id": "gpt_003",
+      "paper": "Improving Language Understanding by Generative Pre-Training",
+      "query": "How did GPT handle entailment and question answering without changing its architecture?",
+      "golden_context": "GPT uses traversal-style input transformations. For entailment, premise and hypothesis are concatenated with a delimiter. For question answering, the context document and question are concatenated, followed by answer choices when applicable.",
+      "reference_answer": "GPT converted each task into a single token sequence using delimiters and task-specific input ordering, without architectural changes.",
+      "tags": ["downstream-tasks", "formatting", "semantic"]
+    },
+    {
+      "id": "gpt_004",
+      "paper": "Improving Language Understanding by Generative Pre-Training",
+      "query": "What dataset and context window were used for GPT pre-training?",
+      "golden_context": "The language model was trained on BooksCorpus, which contains over 7,000 unpublished books with long contiguous text. The model used a context window of 512 tokens.",
+      "reference_answer": "GPT was pre-trained on BooksCorpus and used a 512-token context window.",
+      "tags": ["data", "architecture", "numbers"]
+    },
+    {
+      "id": "gpt_005",
+      "paper": "Improving Language Understanding by Generative Pre-Training",
+      "query": "What type of Transformer does the original GPT use?",
+      "golden_context": "The model uses a multi-layer Transformer decoder. It applies masked self-attention so that each token can attend only to tokens on its left, preserving the autoregressive language-modeling property.",
+      "reference_answer": "Original GPT is a multi-layer, left-to-right Transformer decoder with masked self-attention.",
+      "tags": ["architecture", "causal", "keyword"]
+    },
+    {
+      "id": "gpt_006",
+      "paper": "Improving Language Understanding by Generative Pre-Training",
+      "query": "How is the supervised objective defined for GPT downstream tasks?",
+      "golden_context": "For a labeled dataset C, the supervised objective maximizes the log probability of the target label conditioned on the transformed input sequence and the pre-trained Transformer representation. The auxiliary language-modeling term may be added during fine-tuning.",
+      "reference_answer": "GPT fine-tunes by maximizing the likelihood of the task label from the transformed sequence representation, optionally with the auxiliary language-modeling term.",
+      "tags": ["fine-tuning", "objective", "paraphrase"]
+    },
+    {
+      "id": "gpt_007",
+      "paper": "Improving Language Understanding by Generative Pre-Training",
+      "query": "Why is BooksCorpus useful for GPT pre-training?",
+      "golden_context": "BooksCorpus contains long stretches of contiguous text from more than 7,000 unpublished books. This lets the generative model learn to condition on long-range information rather than only isolated sentences.",
+      "reference_answer": "Its long contiguous passages provide long-range context for autoregressive language modeling.",
+      "tags": ["data", "rationale", "semantic"]
+    },
+    {
+      "id": "gpt_008",
+      "paper": "Improving Language Understanding by Generative Pre-Training",
+      "query": "What is the key difference between GPT pre-training and task-specific fine-tuning?",
+      "golden_context": "During pre-training, GPT learns a language model from unlabeled token sequences. During fine-tuning, the same Transformer parameters are adapted using labeled examples for a supervised task, with task inputs transformed into a text sequence.",
+      "reference_answer": "Pre-training learns from unlabeled next-token prediction; fine-tuning adapts the model to labeled downstream examples.",
+      "tags": ["pretraining", "fine-tuning", "comparison"]
+    },
+    {
+      "id": "gpt_009",
+      "paper": "Improving Language Understanding by Generative Pre-Training",
+      "query": "What does the GPT context window control during autoregressive prediction?",
+      "golden_context": "In the autoregressive objective, k is the size of the context window. The probability of the current token is conditioned on the preceding tokens within that window.",
+      "reference_answer": "The context window size k determines how many preceding tokens GPT can use to predict the current token.",
+      "tags": ["context-window", "objective", "keyword"]
+    },
+    {
+      "id": "gpt_010",
+      "paper": "Improving Language Understanding by Generative Pre-Training",
+      "query": "How are task inputs represented so one GPT model can support multiple language tasks?",
+      "golden_context": "Task-specific inputs are serialized into ordered token sequences. Delimiter tokens separate components such as premise and hypothesis, while question-answering inputs place the document, question, and answer information into one sequence.",
+      "reference_answer": "Different tasks are expressed as serialized sequences with delimiters and task-specific ordering, allowing one architecture to process them.",
+      "tags": ["multi-task", "input-format", "semantic"]
+    }
+  ]
+}
