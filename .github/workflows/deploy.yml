@@ -28,10 +28,10 @@ permissions:
 
 env:
   # Master pipeline execution permission toggle
-  EXECUTE_PIPELINE: "false"
+  EXECUTE_PIPELINE: "true"
 
   # AWS platform deployment toggle
-  ENABLE_AWS: "false"
+  ENABLE_AWS: "true"
 
   # AWS cloud resource settings
   AWS_REGION: ap-southeast-2
