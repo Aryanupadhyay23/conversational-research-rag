@@ -13,9 +13,13 @@ async def read_root():
 @router.get("/health")
 async def health_check():
     """Detailed health check endpoint for frontend, Docker, and uptime monitoring."""
-    service = get_agent_service()
+    try:
+        service = get_agent_service()
+        has_retriever = service.retriever is not None
+    except Exception:
+        has_retriever = False
     return {
         "status": "healthy",
         "service": "Research Paper RAG Project API",
-        "has_retriever": service.retriever is not None,
+        "has_retriever": has_retriever,
     }
