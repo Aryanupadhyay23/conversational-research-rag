@@ -64,7 +64,7 @@ VOLUME ["/app/data"]
 EXPOSE 7860 8000
 
 # Container healthcheck for AWS EC2 self-healing
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/health || curl -f http://localhost:8000/research-rag-backend/health || exit 1
 
 CMD ["./entrypoint.sh"]

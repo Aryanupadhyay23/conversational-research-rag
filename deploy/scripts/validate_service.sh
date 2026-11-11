@@ -21,6 +21,13 @@ for attempt in $(seq 1 "${MAX_ATTEMPTS}"); do
         exit 0
     fi
 
+    # Direct probe fallback: verify backend is actively responding inside container
+    if docker exec "${CONTAINER_NAME}" curl -sf http://localhost:8000/health >/dev/null 2>&1 || \
+       docker exec "${CONTAINER_NAME}" curl -sf http://localhost:8000/research-rag-backend/health >/dev/null 2>&1; then
+        echo "Direct health probe succeeded. Container is online and responsive."
+        exit 0
+    fi
+
     sleep "${SLEEP_SECONDS}"
 done
 

@@ -163,28 +163,54 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Test Container Health Check
+      - name: Validate Docker Image Health Check
         run: |
           cleanup() { docker rm -f test_container >/dev/null 2>&1 || true; }
           trap cleanup EXIT
 
+          echo "Starting container for pre-push health check validation..."
           docker run -d --name test_container \
             -p 8001:8000 \
             -p 8502:7860 \
+            -e GOOGLE_API_KEY_ONE=AQ.pre_push_healthcheck_mock_key_001 \
+            -e EMBEDDING_MODEL_KEY=mock_embedding_key \
             app:${{ github.sha }}
 
-          # Poll the container healthcheck for up to 60 seconds.
+          echo "Polling container health endpoints (FastAPI & Streamlit) for up to 60 seconds..."
+          healthy=false
           for i in {1..30}; do
             sleep 2
-            if curl -sf http://localhost:8001/health | grep -q healthy; then
-              echo "FastAPI container passed pre-deployment health check on port 8001."
-              exit 0
+
+            # 1. Probe FastAPI Backend Health
+            backend_ok=false
+            if curl -sf http://localhost:8001/health | grep -q "healthy" || \
+               curl -sf http://localhost:8001/research-rag-backend/health | grep -q "healthy"; then
+              backend_ok=true
             fi
+
+            # 2. Probe Streamlit Frontend Health
+            frontend_ok=false
+            if curl -sf http://localhost:8502/_stcore/health >/dev/null 2>&1 || \
+               curl -sf http://localhost:8502/ >/dev/null 2>&1; then
+              frontend_ok=true
+            fi
+
+            # 3. Check Docker native healthcheck status
+            docker_status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}unknown{{end}}' test_container)
+
+            if [ "$backend_ok" = true ] && [ "$frontend_ok" = true ]; then
+              echo "Pre-push health checks PASSED at attempt $i (FastAPI & Streamlit online, Docker health: $docker_status)."
+              healthy=true
+              break
+            fi
+            echo "Attempt $i/30: backend_ok=$backend_ok, frontend_ok=$frontend_ok, docker_status=$docker_status"
           done
 
-          echo "Container failed to become healthy within 60 seconds." >&2
-          docker logs --tail 200 test_container >&2 || true
-          exit 1
+          if [ "$healthy" = false ]; then
+            echo "Container health check failed before pushing to ECR!" >&2
+            docker logs --tail 200 test_container >&2 || true
+            exit 1
+          fi
 
       - name: Push Docker Image to Amazon ECR
         env:
