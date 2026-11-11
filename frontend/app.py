@@ -25,6 +25,7 @@ from frontend.components import (
     render_chat_history,
     render_message_turn,
     render_formatted_markdown,
+    normalize_markdown_and_latex,
     render_verdict_badge,
     render_grounding_badge,
     render_sources_section,
@@ -267,17 +268,21 @@ if query_to_run:
 
         # Stream assistant response live from FastAPI SSE stream
         with st.chat_message("assistant"):
+            badges_placeholder = st.empty()
+            status_placeholder = st.empty()
+            response_placeholder = st.empty()
+            sources_placeholder = st.empty()
+
             meta = {
                 "sources": None,
                 "claim_analysis": None,
                 "groundedness": None,
                 "answer": "",
                 "completed": False,
+                "status_cleared": False,
             }
 
-            status_placeholder = st.empty()
-            with status_placeholder.container():
-                st.markdown("🔍 *Analyzing query and planning research retrieval...*")
+            status_placeholder.markdown("🔍 *Analyzing query and planning research retrieval...*")
 
             def stream_tokens():
                 for event in stream_chat(
@@ -288,39 +293,39 @@ if query_to_run:
                     ev_type = event.get("type")
                     if ev_type == "status":
                         node = event.get("node")
+                        status_text = None
                         if node == "router":
-                            with status_placeholder.container():
-                                st.markdown("🧭 *Routing query: evaluating claim and paper context...*")
+                            status_text = "🧭 *Routing query: evaluating claim and paper context...*"
                         elif node in ("agent_node", "new_query_to_agent"):
-                            with status_placeholder.container():
-                                st.markdown("🤖 *Planning retrieval strategy...*")
+                            status_text = "🤖 *Planning retrieval strategy...*"
                         elif node in ("execute_tools", "retrieve"):
-                            with status_placeholder.container():
-                                st.markdown("📚 *Searching indexed paper passages & literature...*")
+                            status_text = "📚 *Searching indexed paper passages & literature...*"
                         elif node in ("relevancy_check", "grade_documents"):
-                            with status_placeholder.container():
-                                st.markdown("🔍 *Evaluating retrieved paper passages for relevance...*")
+                            status_text = "🔍 *Evaluating retrieved paper passages for relevance...*"
                         elif node == "query_rewrite":
-                            with status_placeholder.container():
-                                st.markdown("🔄 *Reformulating query with academic nomenclature...*")
+                            status_text = "🔄 *Reformulating query with academic nomenclature...*"
                         elif node in ("claim_verification", "claim_web_search", "claim_analysis"):
-                            with status_placeholder.container():
-                                st.markdown("⚖️ *Verifying factual claim against scientific literature...*")
+                            status_text = "⚖️ *Verifying factual claim against scientific literature...*"
                         elif node == "generate_answer":
-                            with status_placeholder.container():
-                                st.markdown("✍️ *Synthesizing verified response with academic citations...*")
+                            status_text = "✍️ *Synthesizing verified response with academic citations...*"
                         elif node == "format_answer":
-                            with status_placeholder.container():
-                                st.markdown("✨ *Compiling citations and evidence badges...*")
+                            status_text = "✨ *Compiling citations and evidence badges...*"
+
+                        if status_text:
+                            status_placeholder.markdown(status_text)
                     elif ev_type == "token":
-                        status_placeholder.empty()
+                        if not meta["status_cleared"]:
+                            status_placeholder.empty()
+                            meta["status_cleared"] = True
                         token_content = event.get("content", "")
                         if isinstance(token_content, list):
                             parts = [item.get("text", str(item)) if isinstance(item, dict) else str(item) for item in token_content]
                             token_content = "".join(parts)
                         yield str(token_content)
                     elif ev_type == "final":
-                        status_placeholder.empty()
+                        if not meta["status_cleared"]:
+                            status_placeholder.empty()
+                            meta["status_cleared"] = True
                         meta["sources"] = event.get("sources")
                         meta["claim_analysis"] = event.get("claim_analysis")
                         metadata_dict = event.get("metadata", {})
@@ -331,10 +336,11 @@ if query_to_run:
                         meta["answer"] = str(raw_ans or "")
                         meta["completed"] = True
                     elif ev_type == "error":
-                        status_placeholder.empty()
+                        if not meta["status_cleared"]:
+                            status_placeholder.empty()
+                            meta["status_cleared"] = True
                         st.error(f"Backend Streaming Error: {event.get('error')}")
 
-            response_placeholder = st.empty()
             try:
                 full_response = response_placeholder.write_stream(stream_tokens())
                 if isinstance(full_response, list):
@@ -343,29 +349,33 @@ if query_to_run:
                 if not full_response and meta.get("answer"):
                     full_response = meta["answer"]
                 
-                # Re-render with full LaTeX normalization and markdown styling
+                # Smoothly render normalized markdown/latex without empty() flash
                 if full_response and meta["completed"]:
-                    response_placeholder.empty()
-                    with response_placeholder.container():
-                        render_formatted_markdown(full_response)
+                    response_placeholder.markdown(
+                        normalize_markdown_and_latex(full_response),
+                        unsafe_allow_html=False
+                    )
             except Exception as stream_err:
                 st.error(f"Stream error: {stream_err}")
                 full_response = ""
 
-            # Render claim verification verdict if present
-            if meta.get("claim_analysis"):
-                render_verdict_badge(meta["claim_analysis"])
-
-            # Render Self-RAG Groundedness badge if present
-            if meta.get("groundedness"):
-                render_grounding_badge(meta["groundedness"])
+            # Render top badges in badges_placeholder so they stay on top smoothly without layout jump
+            if meta.get("claim_analysis") or meta.get("groundedness"):
+                with badges_placeholder.container():
+                    if meta.get("claim_analysis"):
+                        render_verdict_badge(meta["claim_analysis"])
+                    if meta.get("groundedness"):
+                        render_grounding_badge(meta["groundedness"])
 
             # Render source citations with quote highlights and interactive page previews
             if meta.get("sources"):
-                render_sources_section(
-                    meta["sources"],
-                    pdf_bytes_map=st.session_state.pdf_bytes_maps.get(document_state_key),
-                )
+                live_key_prefix = f"live_{len(active_session['messages'])}"
+                with sources_placeholder.container():
+                    render_sources_section(
+                        meta["sources"],
+                        pdf_bytes_map=st.session_state.pdf_bytes_maps.get(document_state_key),
+                        key_prefix=live_key_prefix
+                    )
 
             # Persist assistant turn to active session messages & Upstash Redis
             if full_response and meta["completed"]:

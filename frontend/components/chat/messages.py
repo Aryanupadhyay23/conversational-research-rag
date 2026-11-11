@@ -10,7 +10,8 @@ def render_message_turn(
     sources: Optional[List[Dict[str, Any]]] = None,
     claim_analysis: Optional[Dict[str, Any]] = None,
     groundedness: Optional[Dict[str, Any]] = None,
-    pdf_bytes_map: Optional[Dict[str, bytes]] = None
+    pdf_bytes_map: Optional[Dict[str, bytes]] = None,
+    key_prefix: str = "turn"
 ):
     """Render a clean conversation turn with claim verdict, groundedness, and citations."""
     with st.chat_message(role):
@@ -23,19 +24,20 @@ def render_message_turn(
         render_formatted_markdown(content)
 
         if role == "assistant" and sources:
-            render_sources_section(sources, pdf_bytes_map=pdf_bytes_map)
+            render_sources_section(sources, pdf_bytes_map=pdf_bytes_map, key_prefix=key_prefix)
 
 def render_chat_history(
     session_messages: List[Dict[str, Any]],
     pdf_bytes_map: Optional[Dict[str, bytes]] = None
 ):
     """Render historical chat turns for active session."""
-    for msg in session_messages:
+    for idx, msg in enumerate(session_messages):
         render_message_turn(
             role=msg["role"],
             content=msg["content"],
             sources=msg.get("sources"),
             claim_analysis=msg.get("claim_analysis"),
             groundedness=msg.get("groundedness"),
-            pdf_bytes_map=pdf_bytes_map
+            pdf_bytes_map=pdf_bytes_map,
+            key_prefix=f"hist_{idx}"
         )

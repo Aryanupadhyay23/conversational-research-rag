@@ -1,11 +1,13 @@
 import html
+import re
 from typing import List, Dict, Any, Optional
 import streamlit as st
 from frontend.api_client import render_pdf_page_image
 
 def render_sources_section(
     sources: Optional[List[Dict[str, Any]]],
-    pdf_bytes_map: Optional[Dict[str, bytes]] = None
+    pdf_bytes_map: Optional[Dict[str, bytes]] = None,
+    key_prefix: str = "src"
 ):
     """
     Render referenced papers and citations with exact page badges,
@@ -48,12 +50,13 @@ def render_sources_section(
                 file_bytes = pdf_bytes_map.get(source_name) or pdf_bytes_map.get(title)
                 if not file_bytes:
                     for fname, b in pdf_bytes_map.items():
-                        if fname.lower() in source_name.lower() or source_name.lower() in fname.lower():
+                        if fname.lower() in str(source_name).lower() or str(source_name).lower() in fname.lower():
                             file_bytes = b
                             break
 
                 if file_bytes:
-                    preview_key = f"preview_toggle_{source_name}_{page_idx}_{idx}"
+                    clean_name = re.sub(r'[^a-zA-Z0-9_-]', '_', str(source_name))[:30]
+                    preview_key = f"preview_toggle_{key_prefix}_{idx}_{clean_name}_{page_idx}"
                     if st.checkbox(f"🔍 Preview Page {page_num} in Document", key=preview_key):
                         img_bytes = render_pdf_page_image(file_bytes, page_idx)
                         if img_bytes:
