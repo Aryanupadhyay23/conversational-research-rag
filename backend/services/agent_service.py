@@ -11,7 +11,7 @@ from collections import OrderedDict
 from backend.config import MAX_STORED_RETRIEVERS
 from backend.database import get_checkpointer
 from backend.graph.workflow import build_graph
-from backend.utils.helpers import extract_sources_metadata
+from backend.utils.helpers import extract_sources_metadata, extract_text_content
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +188,7 @@ class AgentService:
 
         final_state = await self.graph.ainvoke(initial_state, config=config)
 
-        answer = final_state.get("generation", "No response generated.")
+        answer = extract_text_content(final_state.get("generation", "No response generated."))
         route = final_state.get("route", "retrieve")
         logs = final_state.get("reflection_logs", [])
         metadata = final_state.get("metadata", {})
@@ -245,7 +245,8 @@ class AgentService:
                             continue
                         if not tags or "answer_stream" in tags:
                             chunk = event.get("data", {}).get("chunk")
-                            content = chunk.content if hasattr(chunk, "content") else str(chunk)
+                            raw_content = chunk.content if hasattr(chunk, "content") else str(chunk)
+                            content = extract_text_content(raw_content)
                             if content:
                                 has_streamed_tokens = True
                                 yield {"type": "token", "content": content}
@@ -257,7 +258,7 @@ class AgentService:
             except Exception:
                 final_state = {}
 
-            answer = final_state.get("generation", "")
+            answer = extract_text_content(final_state.get("generation", ""))
             route = final_state.get("route", "retrieve")
             logs = final_state.get("reflection_logs", [])
             metadata = final_state.get("metadata", {})

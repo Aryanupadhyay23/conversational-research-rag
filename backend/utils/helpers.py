@@ -8,6 +8,29 @@ logger = logging.getLogger(__name__)
 
 DOC_TEMPLATE = PromptTemplate.from_template("[{title}]\n{page_content}")
 
+def extract_text_content(content: Any) -> str:
+    """Extract clean string text from str, AIMessage, dict, or list of content blocks."""
+    if not content:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                if "text" in item:
+                    parts.append(str(item["text"]))
+                elif item.get("type") == "text":
+                    parts.append(str(item.get("text", "")))
+            else:
+                parts.append(str(getattr(item, "text", getattr(item, "content", item))))
+        return "".join(parts)
+    if isinstance(content, dict):
+        return str(content.get("text", content.get("content", "")))
+    return str(getattr(content, "content", getattr(content, "text", str(content))))
+
 def format_docs_to_context(docs: List[Document]) -> str:
     """Format Document objects into readable context blocks for LLM prompts."""
     formatted = []
@@ -70,8 +93,9 @@ def filter_clean_chat_history(
     """
     clean_history = []
     for m in messages:
-        content = getattr(m, "content", "")
-        if not isinstance(content, str):
+        raw_content = getattr(m, "content", "")
+        content = extract_text_content(raw_content)
+        if not content:
             continue
 
         # Ignore internal coordinator messages

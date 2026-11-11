@@ -33,7 +33,26 @@ def normalize_markdown_and_latex(text: str) -> str:
     - Protecting escaped dollar signs (\\$50)
     - Formatting Markdown tables with appropriate spacing
     """
-    if not text or not isinstance(text, str):
+    if not text:
+        return ""
+
+    if not isinstance(text, str):
+        if isinstance(text, list):
+            parts = []
+            for item in text:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    parts.append(str(item.get("text", "")))
+                else:
+                    parts.append(str(getattr(item, "text", getattr(item, "content", item))))
+            text = "".join(parts)
+        elif isinstance(text, dict):
+            text = str(text.get("text", text.get("content", "")))
+        else:
+            text = str(text)
+
+    if not text or not text.strip():
         return ""
 
     # Normalize line endings

@@ -10,7 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from backend.schemas.state import GraphState
 from backend.prompts.generation import answer_generation_prompt
-from backend.utils.helpers import format_docs_to_context, extract_sources_metadata, filter_clean_chat_history
+from backend.utils.helpers import format_docs_to_context, extract_sources_metadata, filter_clean_chat_history, extract_text_content
 from backend.config import MAX_CHAT_HISTORY_MESSAGES
 
 logger = logging.getLogger(__name__)
@@ -107,6 +107,7 @@ async def generate_answer_node(state: GraphState, llm, eval_llm=None) -> dict:
         "context": context_str,
         "question": question
     })
+    generation = extract_text_content(generation)
 
     # Self-RAG Groundedness / Hallucination Check
     groundedness = {"is_grounded": True, "confidence": "HIGH", "reason": "Direct response"}
@@ -126,7 +127,7 @@ async def generate_answer_node(state: GraphState, llm, eval_llm=None) -> dict:
 
 async def format_answer_node(state: GraphState) -> dict:
     """N: Format Answer + Add Metadata - Formats citations, verdict badges, and adds to session memory."""
-    generation = state.get("generation", "")
+    generation = extract_text_content(state.get("generation", ""))
     docs = state.get("documents", [])
     route = state.get("route", "retrieve")
     metadata = dict(state.get("metadata", {}))

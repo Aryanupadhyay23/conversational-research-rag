@@ -314,14 +314,21 @@ if query_to_run:
                                 st.markdown("✨ *Compiling citations and evidence badges...*")
                     elif ev_type == "token":
                         status_placeholder.empty()
-                        yield event.get("content", "")
+                        token_content = event.get("content", "")
+                        if isinstance(token_content, list):
+                            parts = [item.get("text", str(item)) if isinstance(item, dict) else str(item) for item in token_content]
+                            token_content = "".join(parts)
+                        yield str(token_content)
                     elif ev_type == "final":
                         status_placeholder.empty()
                         meta["sources"] = event.get("sources")
                         meta["claim_analysis"] = event.get("claim_analysis")
                         metadata_dict = event.get("metadata", {})
                         meta["groundedness"] = event.get("groundedness") or metadata_dict.get("groundedness")
-                        meta["answer"] = event.get("answer", "")
+                        raw_ans = event.get("answer", "")
+                        if isinstance(raw_ans, list):
+                            raw_ans = "".join(item.get("text", str(item)) if isinstance(item, dict) else str(item) for item in raw_ans)
+                        meta["answer"] = str(raw_ans or "")
                         meta["completed"] = True
                     elif ev_type == "error":
                         status_placeholder.empty()
@@ -330,6 +337,9 @@ if query_to_run:
             response_placeholder = st.empty()
             try:
                 full_response = response_placeholder.write_stream(stream_tokens())
+                if isinstance(full_response, list):
+                    full_response = "".join(item.get("text", str(item)) if isinstance(item, dict) else str(item) for item in full_response)
+                full_response = str(full_response or "")
                 if not full_response and meta.get("answer"):
                     full_response = meta["answer"]
                 
