@@ -40,7 +40,21 @@ def _clean_env(val: str | None) -> str:
         val = val[1:-1].strip()
     return val
 
-# --- Ollama Cloud Configuration (Multi-Key Fallback) ---
+# --- Google GenAI Configuration (Multi-Key Fallback) ---
+GOOGLE_KEY_NAMES = [
+    "GOOGLE_API_KEY_ONE", "GOOGLE_API_KEY_1",
+    "GOOGLE_API_KEY_TWO", "GOOGLE_API_KEY_2", "GOOGLE_API_KEY_SECOND",
+    "GOOGLE_API_KEY_THREE", "GOOGLE_API_KEY_3", "GOOGLE_API_KEY_THIRD",
+    "GOOGLE_API_KEY"
+]
+GOOGLE_API_KEYS = list(dict.fromkeys(
+    _clean_env(os.getenv(k)) for k in GOOGLE_KEY_NAMES if _clean_env(os.getenv(k))
+))
+GOOGLE_API_KEY = GOOGLE_API_KEYS[0] if GOOGLE_API_KEYS else ""
+
+DEFAULT_LLM_MODEL = _clean_env(os.getenv("GEMINI_MODEL") or os.getenv("GOOGLE_GENAI_MODEL")) or "gemini-3.5-flash-lite"
+
+# --- Legacy Ollama Configuration (Fallback Support) ---
 OLLAMA_KEY_NAMES = [
     "OLLAMA_API_KEY_ONE", "OLLAMA_API_KEY_1",
     "OLLAMA_API_KEY_TWO", "OLLAMA_API_KEY_2", "OLLAMA_API_KEY_SECOND",
@@ -51,9 +65,7 @@ OLLAMA_API_KEYS = list(dict.fromkeys(
     _clean_env(os.getenv(k)) for k in OLLAMA_KEY_NAMES if _clean_env(os.getenv(k))
 ))
 OLLAMA_API_KEY = OLLAMA_API_KEYS[0] if OLLAMA_API_KEYS else ""
-
 OLLAMA_HOST = _clean_env(os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_BASE_URL") or "https://ollama.com")
-DEFAULT_LLM_MODEL = _clean_env(os.getenv("OLLAMA_MODEL")) or "gpt-oss:120b"
 OLLAMA_NUM_CTX = int(_clean_env(os.getenv("OLLAMA_NUM_CTX")) or "131072")
 
 # --- Embeddings & Search ---
@@ -110,15 +122,42 @@ UPSTASH_REDIS_REST_URL = _clean_env(os.getenv("UPSTASH_REDIS_REST_URL"))
 UPSTASH_REDIS_REST_TOKEN = _clean_env(os.getenv("UPSTASH_REDIS_REST_TOKEN"))
 
 
+def _create_google_genai_client(model_name: str, api_key: str, temperature: float, key_idx: int, total_keys: int):
+    """Instantiate a ChatGoogleGenerativeAI instance with retry on busy/quota and multi-key fallback."""
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    model = ChatGoogleGenerativeAI(
+        model=model_name,
+        api_key=api_key,
+        temperature=temperature,
+        max_retries=3,
+    )
+
+    def on_error(run):
+        err = getattr(run, "error", "")
+        masked = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else "***"
+        if key_idx < total_keys:
+            logger.warning(
+                f"Google GenAI request failed on API key #{key_idx} ({masked}): {err}. "
+                f"Automatically failing over to key #{key_idx + 1}..."
+            )
+        else:
+            logger.error(
+                f"Google GenAI request failed on final API key #{key_idx} ({masked}): {err}. "
+                "No more fallback keys available."
+            )
+
+    return model.with_listeners(on_error=on_error)
+
 def _create_ollama_client(model_name: str, api_key: str, temperature: float, key_idx: int, total_keys: int):
-    """Instantiate a ChatOllama instance with Authorization header, context window, and failure logging."""
+    """Instantiate a ChatOllama instance with Authorization header (legacy fallback)."""
     from langchain_ollama import ChatOllama
     client_kwargs = (
         {"headers": {"Authorization": f"Bearer {api_key}"}}
         if api_key
         else {}
     )
-    model = ChatOllama(
+    return ChatOllama(
         model=model_name,
         base_url=OLLAMA_HOST,
         temperature=temperature,
@@ -126,32 +165,26 @@ def _create_ollama_client(model_name: str, api_key: str, temperature: float, key
         client_kwargs=client_kwargs,
     )
 
-    def on_error(run):
-        err = getattr(run, "error", "")
-        masked = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 8 else "***"
-        if key_idx < total_keys:
-            logger.warning(
-                f"Ollama request failed on API key #{key_idx} ({masked}): {err}. "
-                f"Automatically failing over to key #{key_idx + 1}..."
-            )
-        else:
-            logger.error(
-                f"Ollama request failed on final API key #{key_idx} ({masked}): {err}. "
-                "No more fallback keys available."
-            )
-
-    return model.with_listeners(on_error=on_error)
-
 def get_llm(temperature: float = 0.2) -> BaseChatModel:
-    """Return generation LLM using LangChain ChatOllama with multi-key fallback."""
-    keys = OLLAMA_API_KEYS if OLLAMA_API_KEYS else ([OLLAMA_API_KEY] if OLLAMA_API_KEY else [""])
+    """Return generation LLM using LangChain ChatGoogleGenerativeAI with multi-key fallback."""
+    keys = GOOGLE_API_KEYS if GOOGLE_API_KEYS else ([GOOGLE_API_KEY] if GOOGLE_API_KEY else [])
     total_keys = len(keys)
 
-    models = [
-        _create_ollama_client(DEFAULT_LLM_MODEL, key, temperature, idx + 1, total_keys)
-        for idx, key in enumerate(keys)
-    ]
+    if total_keys > 0:
+        models = [
+            _create_google_genai_client(DEFAULT_LLM_MODEL, key, temperature, idx + 1, total_keys)
+            for idx, key in enumerate(keys)
+        ]
+        if len(models) == 1:
+            return models[0]
+        return models[0].with_fallbacks(models[1:])
 
+    # Fallback to Ollama if no Google GenAI keys are provided
+    ollama_keys = OLLAMA_API_KEYS if OLLAMA_API_KEYS else ([OLLAMA_API_KEY] if OLLAMA_API_KEY else [""])
+    models = [
+        _create_ollama_client(_clean_env(os.getenv("OLLAMA_MODEL")) or "gpt-oss:120b", key, temperature, idx + 1, len(ollama_keys))
+        for idx, key in enumerate(ollama_keys)
+    ]
     if len(models) == 1:
         return models[0]
     return models[0].with_fallbacks(models[1:])
